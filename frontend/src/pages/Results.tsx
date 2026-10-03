@@ -1,18 +1,27 @@
 import React, { useState, useEffect } from "react"
-import { useParams, Link } from "react-router-dom"
+import { useParams, Link, useNavigate } from "react-router-dom"
 import ClipCard from "@/components/ClipCard"
-import { getVideo, downloadClipUrl } from "@/lib/api"
+import { getVideo, downloadClipUrl, deleteProject, rescanVideo } from "@/lib/api"
 import type { VideoInfo, ClipInfo } from "@/lib/api"
 
 type SortKey = "score" | "duration" | "time"
 
 export default function Results() {
   const { videoId } = useParams<{ videoId: string }>()
+  const navigate = useNavigate()
   const [video, setVideo] = useState<VideoInfo | null>(null)
   const [sortKey, setSortKey] = useState<SortKey>("score")
   const [toastMsg, setToastMsg] = useState("")
   const [toastVisible, setToastVisible] = useState(false)
   const [loading, setLoading] = useState(true)
+
+  // Re-scout controls
+  const [showRescan, setShowRescan] = useState(false)
+  const [rescanCount, setRescanCount] = useState(5)
+  const [rescanDur, setRescanDur] = useState("30-60")
+  const [rescanLayout, setRescanLayout] = useState("blur")
+  const [rescanLang, setRescanLang] = useState("id")
+  const [rescanning, setRescanning] = useState(false)
 
   const showToast = (msg: string) => {
     setToastMsg(msg)
@@ -28,6 +37,36 @@ export default function Results() {
         setLoading(false)
       })
       .catch(() => setLoading(false))
+  }
+
+  const handleDelete = async () => {
+    if (!videoId) return
+    if (!window.confirm("Hapus seluruh proyek ini dan semua file videonya?")) return
+    try {
+      await deleteProject(videoId)
+      navigate("/")
+    } catch {
+      showToast("Gagal menghapus proyek")
+    }
+  }
+
+  const handleRescan = async () => {
+    if (!videoId) return
+    setRescanning(true)
+    showToast("Memulai analisis ulang video...")
+    try {
+      const res = await rescanVideo(videoId, {
+        clip_count: rescanCount,
+        duration_target: rescanDur,
+        layout: rescanLayout,
+        subtitle_lang: rescanLang,
+      })
+      navigate(`/processing/${res.job_id}/${videoId}`)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Gagal rescan"
+      showToast(msg)
+      setRescanning(false)
+    }
   }
 
   useEffect(() => {
@@ -86,10 +125,17 @@ export default function Results() {
           </p>
         </div>
 
-        <div style={{ display: "flex", gap: 12 }}>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
           <Link to="/" className="btn-ghost" style={{ height: 52 }}>
-            ← Klip Video Baru
+            ← Beranda
           </Link>
+          <button
+            className={showRescan ? "btn-primary" : "btn-ghost"}
+            style={{ height: 52 }}
+            onClick={() => setShowRescan(!showRescan)}
+          >
+            {showRescan ? "Tutup Re-Scout" : "⚙ Re-Scout Proyek"}
+          </button>
           <button
             className="btn-primary"
             onClick={handleDownloadAll}
@@ -98,8 +144,122 @@ export default function Results() {
             Download Semua ({doneCount})
             <span aria-hidden="true">↓</span>
           </button>
+          <button
+            onClick={handleDelete}
+            style={{
+              height: 52,
+              background: "transparent",
+              border: "1px solid #FF3333",
+              color: "#FF3333",
+              padding: "0 16px",
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: "pointer",
+              borderRadius: 2,
+            }}
+          >
+            Hapus Proyek
+          </button>
         </div>
       </div>
+
+      {/* Re-Scout Drawer */}
+      {showRescan && (
+        <div
+          style={{
+            marginBottom: 32,
+            padding: 20,
+            background: "#141414",
+            border: "1px solid #FF6A00",
+            borderRadius: 2,
+          }}
+        >
+          <div style={{ fontSize: 13, fontWeight: 800, color: "#FF6A00", textTransform: "uppercase", marginBottom: 12 }}>
+            Re-Scout Video dengan Parameter Baru
+          </div>
+          <p style={{ fontSize: 12, color: "#9A9A9A", marginBottom: 16 }}>
+            Transkrip sudah tersimpan di database. AI akan langsung menganalisis hook baru dan merender klip tanpa perlu mengunduh ulang video.
+          </p>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 16 }}>
+            <div>
+              <label style={{ fontSize: 11, color: "#9A9A9A", display: "block", marginBottom: 4 }}>
+                Target Durasi
+              </label>
+              <select
+                value={rescanDur}
+                onChange={(e) => setRescanDur(e.target.value)}
+                style={{ width: "100%", background: "#0A0A0A", border: "1px solid #2A2A2A", color: "#F5F5F5", padding: "8px", fontSize: 12 }}
+              >
+                <option value="15-30">15–30 dtk</option>
+                <option value="30-60">30–60 dtk</option>
+                <option value="60-90">60–90 dtk</option>
+              </select>
+            </div>
+
+            <div>
+              <label style={{ fontSize: 11, color: "#9A9A9A", display: "block", marginBottom: 4 }}>
+                Jumlah Klip
+              </label>
+              <select
+                value={rescanCount}
+                onChange={(e) => setRescanCount(Number(e.target.value))}
+                style={{ width: "100%", background: "#0A0A0A", border: "1px solid #2A2A2A", color: "#F5F5F5", padding: "8px", fontSize: 12 }}
+              >
+                <option value="3">3 klip</option>
+                <option value="5">5 klip</option>
+                <option value="8">8 klip</option>
+              </select>
+            </div>
+
+            <div>
+              <label style={{ fontSize: 11, color: "#9A9A9A", display: "block", marginBottom: 4 }}>
+                Layout Video
+              </label>
+              <select
+                value={rescanLayout}
+                onChange={(e) => setRescanLayout(e.target.value)}
+                style={{ width: "100%", background: "#0A0A0A", border: "1px solid #2A2A2A", color: "#F5F5F5", padding: "8px", fontSize: 12 }}
+              >
+                <option value="blur">Blur BG (9:16)</option>
+                <option value="center">Center Crop</option>
+                <option value="stacked">Stacked (Cam)</option>
+              </select>
+            </div>
+
+            <div>
+              <label style={{ fontSize: 11, color: "#9A9A9A", display: "block", marginBottom: 4 }}>
+                Bahasa Subtitle
+              </label>
+              <select
+                value={rescanLang}
+                onChange={(e) => setRescanLang(e.target.value)}
+                style={{ width: "100%", background: "#0A0A0A", border: "1px solid #2A2A2A", color: "#F5F5F5", padding: "8px", fontSize: 12 }}
+              >
+                <option value="id">Indonesia</option>
+                <option value="en">English</option>
+              </select>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 20, display: "flex", justifyContent: "flex-end", gap: 12 }}>
+            <button
+              className="btn-ghost"
+              onClick={() => setShowRescan(false)}
+              disabled={rescanning}
+            >
+              Batal
+            </button>
+            <button
+              className="btn-primary"
+              onClick={handleRescan}
+              disabled={rescanning}
+            >
+              {rescanning ? "Memproses..." : "Mulai Re-Scout Sekarang →"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Sort controls */}
       <div

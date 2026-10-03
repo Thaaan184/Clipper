@@ -27,9 +27,17 @@ function fmtTime(sec: number): string {
 
 export default function ClipCard({ clip, onToast, onRetry }: ClipCardProps) {
   const [isPlaying, setIsPlaying] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editTitle, setEditTitle] = useState(clip.hook_title)
+  const [editStart, setEditStart] = useState(clip.start_time)
+  const [editEnd, setEditEnd] = useState(clip.end_time)
+  const [editLayout, setEditLayout] = useState(clip.layout || "blur")
+  const [editLang, setEditLang] = useState(clip.subtitle_lang || "id")
+  const [saving, setSaving] = useState(false)
+
   const isFail = clip.status === "error"
   const isDone = clip.status === "done"
-  const isRunning = clip.status === "rendering"
+  const isRunning = clip.status === "rendering" || clip.status === "pending"
 
   const handleDownload = () => {
     onToast(`Mengunduh klip ${String(clip.clip_index).padStart(2, "0")}...`)
@@ -47,6 +55,31 @@ export default function ClipCard({ clip, onToast, onRetry }: ClipCardProps) {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Retry gagal"
       onToast(msg)
+    }
+  }
+
+  const handleSaveEdit = async () => {
+    if (editEnd <= editStart) {
+      onToast("Waktu selesai harus lebih besar dari mulai")
+      return
+    }
+    setSaving(true)
+    onToast(`Memulai render ulang klip ${String(clip.clip_index).padStart(2, "0")}...`)
+    try {
+      await retryClip(clip.id, {
+        start_time: Number(editStart),
+        end_time: Number(editEnd),
+        hook_title: editTitle,
+        layout: editLayout,
+        subtitle_lang: editLang,
+      })
+      setIsEditing(false)
+      if (onRetry) onRetry()
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Gagal menyimpan editan"
+      onToast(msg)
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -260,6 +293,13 @@ export default function ClipCard({ clip, onToast, onRetry }: ClipCardProps) {
                 {isPlaying ? "Tutup" : "Preview"}
               </button>
               <button
+                className={isEditing ? "btn-primary" : "btn-ghost"}
+                style={{ flex: 1, justifyContent: "center" }}
+                onClick={() => setIsEditing(!isEditing)}
+              >
+                {isEditing ? "Tutup Edit" : "Edit"}
+              </button>
+              <button
                 className="btn-ghost"
                 style={{ flex: 1, justifyContent: "center" }}
                 disabled={!isDone}
@@ -270,6 +310,151 @@ export default function ClipCard({ clip, onToast, onRetry }: ClipCardProps) {
             </>
           )}
         </div>
+
+        {/* Inline Edit Drawer */}
+        {isEditing && (
+          <div
+            style={{
+              marginTop: 14,
+              padding: 12,
+              border: "1px solid #2A2A2A",
+              background: "#141414",
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+            }}
+          >
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#FF6A00", textTransform: "uppercase" }}>
+              Edit Parameter Klip
+            </div>
+            <div>
+              <label style={{ fontSize: 10, color: "#9A9A9A", display: "block", marginBottom: 3 }}>
+                Judul Hook
+              </label>
+              <input
+                type="text"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                style={{
+                  width: "100%",
+                  background: "#0A0A0A",
+                  border: "1px solid #2A2A2A",
+                  color: "#F5F5F5",
+                  padding: "5px 8px",
+                  fontSize: 12,
+                }}
+              />
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div>
+                <label style={{ fontSize: 10, color: "#9A9A9A", display: "block", marginBottom: 3 }}>
+                  Mulai (dtk)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={editStart}
+                  onChange={(e) => setEditStart(parseFloat(e.target.value) || 0)}
+                  style={{
+                    width: "100%",
+                    background: "#0A0A0A",
+                    border: "1px solid #2A2A2A",
+                    color: "#F5F5F5",
+                    padding: "5px 8px",
+                    fontSize: 12,
+                  }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 10, color: "#9A9A9A", display: "block", marginBottom: 3 }}>
+                  Selesai (dtk)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={editEnd}
+                  onChange={(e) => setEditEnd(parseFloat(e.target.value) || 0)}
+                  style={{
+                    width: "100%",
+                    background: "#0A0A0A",
+                    border: "1px solid #2A2A2A",
+                    color: "#F5F5F5",
+                    padding: "5px 8px",
+                    fontSize: 12,
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ fontSize: 11, color: "#9A9A9A" }}>
+              Durasi: <strong style={{ color: "#F5F5F5" }}>{Math.max(0, Math.round(editEnd - editStart))} detik</strong>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div>
+                <label style={{ fontSize: 10, color: "#9A9A9A", display: "block", marginBottom: 3 }}>
+                  Layout
+                </label>
+                <select
+                  value={editLayout}
+                  onChange={(e) => setEditLayout(e.target.value)}
+                  style={{
+                    width: "100%",
+                    background: "#0A0A0A",
+                    border: "1px solid #2A2A2A",
+                    color: "#F5F5F5",
+                    padding: "5px 8px",
+                    fontSize: 12,
+                  }}
+                >
+                  <option value="blur">Blur BG</option>
+                  <option value="center">Center Crop</option>
+                  <option value="stacked">Stacked (Cam)</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 10, color: "#9A9A9A", display: "block", marginBottom: 3 }}>
+                  Subtitle
+                </label>
+                <select
+                  value={editLang}
+                  onChange={(e) => setEditLang(e.target.value)}
+                  style={{
+                    width: "100%",
+                    background: "#0A0A0A",
+                    border: "1px solid #2A2A2A",
+                    color: "#F5F5F5",
+                    padding: "5px 8px",
+                    fontSize: 12,
+                  }}
+                >
+                  <option value="id">Indonesia</option>
+                  <option value="en">English</option>
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+              <button
+                className="btn-ghost"
+                style={{ flex: 1, justifyContent: "center", fontSize: 11, height: 36 }}
+                onClick={() => setIsEditing(false)}
+                disabled={saving}
+              >
+                Batal
+              </button>
+              <button
+                className="btn-primary"
+                style={{ flex: 2, justifyContent: "center", fontSize: 11, height: 36 }}
+                onClick={handleSaveEdit}
+                disabled={saving}
+              >
+                {saving ? "Memproses..." : "Render Ulang Klip"}
+              </button>
+            </div>
+          </div>
+        )}
       </MarkedFrame>
     </div>
   )

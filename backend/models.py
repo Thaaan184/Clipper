@@ -80,9 +80,19 @@ class VideoInfo(BaseModel):
     clips: list[ClipInfo] = []
 
 
+class RescanRequest(BaseModel):
+    clip_count: int = 5
+    duration_target: str = "30-60"
+    subtitle_lang: str = "id"
+    layout: str = "blur"
+
+
 class RenderRequest(BaseModel):
     layout: str = "blur"
     subtitle_lang: str = "id"
+    start_time: Optional[float] = None
+    end_time: Optional[float] = None
+    hook_title: Optional[str] = None
 
 
 class SSEEvent(BaseModel):

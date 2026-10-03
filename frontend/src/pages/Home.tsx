@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import MarkedFrame from "@/components/MarkedFrame"
-import { startScan, getProjects } from "@/lib/api"
+import { startScan, getProjects, deleteProject } from "@/lib/api"
 import type { Project } from "@/lib/api"
 
 const DURATION_OPTS = ["15–30 dtk", "30–60 dtk", "60–90 dtk"]
@@ -31,6 +31,17 @@ export default function Home() {
   useEffect(() => {
     getProjects().then(setProjects).catch(() => {})
   }, [])
+
+  const handleDeleteProject = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation()
+    if (!window.confirm("Hapus proyek ini dan seluruh video klipnya?")) return
+    try {
+      await deleteProject(id)
+      setProjects((prev) => prev.filter((p) => p.id !== id))
+    } catch {
+      alert("Gagal menghapus proyek")
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -315,8 +326,29 @@ export default function Home() {
                   >
                     {p.title || "Untitled"}
                   </h3>
-                  <div style={{ color: "#9A9A9A", fontSize: 11 }}>
-                    <span>{p.status === "done" ? "Selesai" : p.status}</span>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+                    <span style={{ color: "#9A9A9A", fontSize: 11 }}>
+                      {p.status === "done" ? "Selesai" : p.status}
+                    </span>
+                    <button
+                      onClick={(e) => handleDeleteProject(e, p.id)}
+                      title="Hapus Proyek"
+                      style={{
+                        background: "transparent",
+                        border: "1px solid #333",
+                        color: "#FF3333",
+                        padding: "3px 8px",
+                        fontSize: 10,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        borderRadius: 2,
+                        textTransform: "uppercase",
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.borderColor = "#FF3333")}
+                      onMouseLeave={(e) => (e.currentTarget.style.borderColor = "#333")}
+                    >
+                      Hapus
+                    </button>
                   </div>
                 </MarkedFrame>
               </div>

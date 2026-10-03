@@ -26,6 +26,7 @@ export interface ClipInfo {
   hashtags: string[]
   content_type: string
   layout: string
+  subtitle_lang?: string
   status: string
   error_msg: string | null
   file_path: string | null
@@ -78,13 +79,53 @@ export async function getProjects(): Promise<Project[]> {
   return res.json()
 }
 
-export async function retryClip(clipId: string, layout: string): Promise<{ job_id: string }> {
+export interface RescanParams {
+  clip_count?: number
+  duration_target?: string
+  subtitle_lang?: string
+  layout?: string
+}
+
+export interface EditClipParams {
+  layout?: string
+  subtitle_lang?: string
+  start_time?: number
+  end_time?: number
+  hook_title?: string
+}
+
+export async function deleteProject(videoId: string): Promise<{ deleted: string }> {
+  const res = await fetch(`${API_BASE}/videos/${videoId}`, {
+    method: "DELETE",
+  })
+  if (!res.ok) throw new Error("Gagal menghapus proyek")
+  return res.json()
+}
+
+export async function rescanVideo(videoId: string, params: RescanParams): Promise<{ job_id: string; video_id: string }> {
+  const res = await fetch(`${API_BASE}/videos/${videoId}/rescan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || "Gagal rescan video")
+  }
+  return res.json()
+}
+
+export async function retryClip(
+  clipId: string,
+  params: string | EditClipParams
+): Promise<{ job_id: string; clip_id: string }> {
+  const body = typeof params === "string" ? { layout: params } : params
   const res = await fetch(`${API_BASE}/clips/${clipId}/retry`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ layout }),
+    body: JSON.stringify(body),
   })
-  if (!res.ok) throw new Error("Gagal retry clip")
+  if (!res.ok) throw new Error("Gagal render ulang klip")
   return res.json()
 }
 

@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 
 from config import settings
 from db import init_db, get_db
-from models import ScanRequest, ScanResponse, VideoInfo, ClipInfo, RenderRequest
+from models import ScanRequest, ScanResponse, VideoInfo, ClipInfo, RenderRequest, RescanRequest
 from workers.ingest import run_ingest
 from workers.scout import run_scout
 from workers.editor import render_clip
@@ -379,17 +379,159 @@ async def preview_clip(clip_id: str):
     )
 
 
+async def _run_rescan_pipeline(job_id: str, video_id: str, video: dict, req: ScanRequest, q: Any):
+    """Rescan pipeline: uses existing transcript/audio spikes, re-runs scout + editor."""
+    db_path = str(settings.db_path)
+    try:
+        raw_spikes = video.get("audio_spikes") or "[]"
+        try:
+            spikes = json.loads(raw_spikes)
+        except Exception:
+            spikes = []
+
+        await q.put({
+            "event": "progress",
+            "job_id": job_id,
+            "phase": "scout",
+            "progress": 20,
+            "message": "Menganalisis ulang transkrip dan hook momen...",
+        })
+
+        clip_ids = await run_scout(
+            job_id=job_id,
+            video_id=video_id,
+            transcript_text=video.get("transcript", ""),
+            audio_spikes=spikes,
+            video_duration=video.get("duration", 0),
+            clip_count=req.clip_count,
+            duration_target=req.duration_target,
+            subtitle_lang=req.subtitle_lang,
+            layout=req.layout,
+            progress_queue=q,
+            db_path=db_path,
+        )
+
+        render_tasks = []
+        for clip_id in clip_ids:
+            async with aiosqlite.connect(db_path) as db:
+                db.row_factory = aiosqlite.Row
+                rows = await db.execute_fetchall("SELECT * FROM clips WHERE id = ?", (clip_id,))
+                if not rows:
+                    continue
+                c = rows[0]
+
+            render_job_id = str(uuid.uuid4())
+            now = datetime.utcnow().isoformat()
+            async with aiosqlite.connect(db_path) as db:
+                await db.execute(
+                    "INSERT INTO jobs (id, video_id, clip_id, job_type, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
+                    (render_job_id, video_id, clip_id, "render", "pending", now, now),
+                )
+                await db.commit()
+
+            render_tasks.append(_render_with_semaphore(
+                render_job_id, clip_id, video_id, video["url"],
+                c["start_time"], c["end_time"], c["layout"], c["subtitle_lang"],
+                q, db_path,
+            ))
+
+        await asyncio.gather(*render_tasks, return_exceptions=True)
+
+        async with aiosqlite.connect(db_path) as db:
+            await db.execute(
+                "UPDATE jobs SET status = 'done', phase = 'done', progress = 100, message = 'Semua klip selesai diproses ulang', updated_at = ? WHERE id = ?",
+                (datetime.utcnow().isoformat(), job_id),
+            )
+            await db.execute(
+                "UPDATE videos SET status = 'done', updated_at = ? WHERE id = ?",
+                (datetime.utcnow().isoformat(), video_id),
+            )
+            await db.commit()
+
+        async with aiosqlite.connect(db_path) as db:
+            db.row_factory = aiosqlite.Row
+            clips = await db.execute_fetchall("SELECT * FROM clips WHERE video_id = ? ORDER BY score DESC", (video_id,))
+
+        clips_data = [_clip_row_to_dict(c) for c in clips]
+        await q.put({"event": "done", "job_id": job_id, "clips": clips_data})
+
+    except Exception as e:
+        logger.error("Rescan pipeline error: %s", e)
+        await q.put({"event": "error", "job_id": job_id, "error": str(e)})
+
+
+@app.post("/api/videos/{video_id}/rescan")
+async def rescan_video(video_id: str, req: RescanRequest):
+    """Re-scout and re-render an already saved video with new settings without re-downloading."""
+    async with aiosqlite.connect(str(settings.db_path)) as db:
+        db.row_factory = aiosqlite.Row
+        rows = await db.execute_fetchall("SELECT * FROM videos WHERE id = ?", (video_id,))
+        if not rows:
+            raise HTTPException(404, "Video tidak ditemukan")
+        video = dict(rows[0])
+
+    if not video.get("transcript"):
+        raise HTTPException(400, "Video belum memiliki transkrip, tidak dapat di-rescan")
+
+    # Delete previous clips and files
+    async with aiosqlite.connect(str(settings.db_path)) as db:
+        db.row_factory = aiosqlite.Row
+        old_clips = await db.execute_fetchall("SELECT file_path FROM clips WHERE video_id = ?", (video_id,))
+        for c in old_clips:
+            if c["file_path"] and Path(c["file_path"]).exists():
+                try:
+                    Path(c["file_path"]).unlink()
+                except OSError:
+                    pass
+        await db.execute("DELETE FROM clips WHERE video_id = ?", (video_id,))
+        await db.commit()
+
+    job_id = str(uuid.uuid4())
+    now = datetime.utcnow().isoformat()
+    async with aiosqlite.connect(str(settings.db_path)) as db:
+        await db.execute(
+            "INSERT INTO jobs (id, video_id, job_type, status, phase, progress, message, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            (job_id, video_id, "scan", "pending", "scout", 10, "Menyiapkan rescan klip...", now, now),
+        )
+        await db.execute("UPDATE videos SET status = 'scouting', updated_at = ? WHERE id = ?", (now, video_id))
+        await db.commit()
+
+    q = BroadcastQueue(job_id)
+    scan_req = ScanRequest(
+        url=video["url"],
+        clip_count=req.clip_count,
+        duration_target=req.duration_target,
+        subtitle_lang=req.subtitle_lang,
+        layout=req.layout,
+    )
+    asyncio.create_task(_run_rescan_pipeline(job_id, video_id, video, scan_req, q))
+    return {"job_id": job_id, "video_id": video_id}
+
+
 @app.post("/api/clips/{clip_id}/retry")
 async def retry_clip(clip_id: str, req: RenderRequest):
-    """Re-render a failed clip."""
+    """Re-render an individual clip with modified timings, layout, or title."""
     async with aiosqlite.connect(str(settings.db_path)) as db:
         db.row_factory = aiosqlite.Row
         rows = await db.execute_fetchall(
             "SELECT c.*, v.url FROM clips c JOIN videos v ON v.id = c.video_id WHERE c.id = ?", (clip_id,)
         )
         if not rows:
-            raise HTTPException(404)
+            raise HTTPException(404, "Klip tidak ditemukan")
         clip = dict(rows[0])
+
+    start_time = float(req.start_time) if req.start_time is not None else float(clip["start_time"])
+    end_time = float(req.end_time) if req.end_time is not None else float(clip["end_time"])
+    duration = round(max(1.0, end_time - start_time), 2)
+    hook_title = req.hook_title.strip() if req.hook_title else clip["hook_title"]
+    layout = req.layout or clip.get("layout", "blur")
+    subtitle_lang = req.subtitle_lang or clip.get("subtitle_lang", "id")
+
+    if clip.get("file_path") and Path(clip["file_path"]).exists():
+        try:
+            Path(clip["file_path"]).unlink()
+        except OSError:
+            pass
 
     job_id = str(uuid.uuid4())
     now = datetime.utcnow().isoformat()
@@ -400,13 +542,16 @@ async def retry_clip(clip_id: str, req: RenderRequest):
             "INSERT INTO jobs (id, video_id, clip_id, job_type, status, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
             (job_id, clip["video_id"], clip_id, "render", "pending", now, now),
         )
-        await db.execute("UPDATE clips SET status='pending', error_msg=NULL WHERE id=?", (clip_id,))
+        await db.execute(
+            "UPDATE clips SET start_time=?, end_time=?, duration=?, hook_title=?, layout=?, subtitle_lang=?, status='pending', error_msg=NULL, updated_at=? WHERE id=?",
+            (start_time, end_time, duration, hook_title, layout, subtitle_lang, now, clip_id),
+        )
         await db.commit()
 
     asyncio.create_task(render_clip(
         job_id, clip_id, clip["video_id"], clip["url"],
-        clip["start_time"], clip["end_time"],
-        req.layout, req.subtitle_lang, q, str(settings.db_path),
+        start_time, end_time,
+        layout, subtitle_lang, q, str(settings.db_path),
     ))
 
     return {"job_id": job_id, "clip_id": clip_id}
@@ -419,8 +564,17 @@ async def delete_video(video_id: str):
         clips = await db.execute_fetchall("SELECT file_path FROM clips WHERE video_id = ?", (video_id,))
         for c in clips:
             if c["file_path"] and Path(c["file_path"]).exists():
-                Path(c["file_path"]).unlink()
+                try:
+                    Path(c["file_path"]).unlink()
+                except OSError:
+                    pass
+        for f in settings.raw_dir.glob(f"{video_id}.*"):
+            try:
+                f.unlink()
+            except OSError:
+                pass
         await db.execute("DELETE FROM clips WHERE video_id = ?", (video_id,))
+        await db.execute("DELETE FROM jobs WHERE video_id = ?", (video_id,))
         await db.execute("DELETE FROM videos WHERE id = ?", (video_id,))
         await db.commit()
     return {"deleted": video_id}
