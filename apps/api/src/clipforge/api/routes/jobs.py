@@ -422,8 +422,8 @@ async def get_job_clips(
 ) -> dict[str, Any]:
     """Get all rendered clips for a given job."""
     query = """
-        SELECT id, candidate_id, file_path, srt_path, duration_s, width, height,
-               status, qa_status, qa_report_json, created_at
+        SELECT id, candidate_id, video_path, srt_path, duration_s, width, height,
+               status, qa_json, created_at
         FROM clips
         WHERE job_id = ?
         ORDER BY created_at ASC
@@ -431,7 +431,7 @@ async def get_job_clips(
     clips: list[dict[str, Any]] = []
     async with db.execute(query, (job_id,)) as cur:
         async for r in cur:
-            qa_rep = json.loads(r[9]) if r[9] else None
+            qa_rep = json.loads(r[8]) if r[8] else None
             clips.append({
                 "id": r[0],
                 "job_id": job_id,
@@ -442,9 +442,9 @@ async def get_job_clips(
                 "width": r[5],
                 "height": r[6],
                 "status": r[7],
-                "qa_status": r[8],
                 "qa": qa_rep,
-                "created_at": r[10],
+                "created_at": r[9],
             })
     return {"clips": clips, "total": len(clips)}
+
 
