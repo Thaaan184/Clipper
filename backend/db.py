@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS clips (
     error_msg    TEXT,
     file_path    TEXT,
     file_size    INTEGER,
+    transcript   TEXT,
+    subtitles_json TEXT,
     created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -70,6 +72,12 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 async def init_db():
     async with aiosqlite.connect(DB) as db:
         await db.executescript(CREATE_SQL)
+        # Migrate columns safely if DB already exists
+        for col, ctype in [("transcript", "TEXT"), ("subtitles_json", "TEXT")]:
+            try:
+                await db.execute(f"ALTER TABLE clips ADD COLUMN {col} {ctype}")
+            except Exception:
+                pass
         await db.commit()
 
 

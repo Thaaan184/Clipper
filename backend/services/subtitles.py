@@ -90,15 +90,51 @@ def build_ass_from_segments(segments: list[dict], clip_start_offset: float = 0.0
     return ASS_HEADER + "\n".join(events) + "\n"
 
 
+def build_ass_from_cues(cues: list[dict], clip_start_offset: float = 0.0) -> str:
+    """
+    Build .ass kinetic subtitles from a list of user-provided or stored cues.
+    Each cue: {"start": float, "end": float, "text": str, "words": optional list}
+    If word timestamps are missing, words are interpolated evenly across duration.
+    """
+    segments = []
+    for c in cues:
+        start = float(c.get("start", 0.0))
+        end = float(c.get("end", start + 3.0))
+        text = str(c.get("text", "")).strip()
+        if not text:
+            continue
+        words = c.get("words", [])
+        if not words:
+            word_tokens = text.split()
+            if word_tokens:
+                dur = max(0.2, end - start)
+                w_step = dur / len(word_tokens)
+                words = [
+                    {
+                        "word": w,
+                        "start": round(start + i * w_step, 3),
+                        "end": round(start + (i + 1) * w_step, 3),
+                    }
+                    for i, w in enumerate(word_tokens)
+                ]
+        segments.append({
+            "start": start,
+            "duration": max(0.1, end - start),
+            "text": text,
+            "words": words,
+        })
+    return build_ass_from_segments(segments, clip_start_offset)
+
+
 async def generate_subtitle(
     audio_path: Path,
     output_path: Path,
     clip_start_offset: float = 0.0,
     lang: str = "id",
-) -> bool:
+) -> tuple[bool, list[dict]]:
     """
     Transcribe audio clip with faster-whisper word-level timestamps,
-    generate .ass subtitle file.
+    generate .ass subtitle file and return segments data.
     """
     try:
         model = WhisperModel(
@@ -137,13 +173,13 @@ async def generate_subtitle(
 
         if not segments:
             logger.warning("No segments from whisper for %s", audio_path.name)
-            return False
+            return False, []
 
         ass_content = build_ass_from_segments(segments, clip_start_offset)
         output_path.write_text(ass_content, encoding="utf-8")
         logger.info("Subtitle written: %s (%d events)", output_path.name, len(segments))
-        return True
+        return True, segments
 
     except Exception as e:
         logger.error("Subtitle generation failed: %s", e)
-        return False
+        return False, []

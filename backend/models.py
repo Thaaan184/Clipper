@@ -65,9 +65,12 @@ class ClipInfo(BaseModel):
     hashtags: Optional[list[str]]
     content_type: Optional[str]
     layout: str
+    subtitle_lang: Optional[str] = "id"
     status: str
     error_msg: Optional[str]
     file_path: Optional[str]
+    transcript: Optional[str] = None
+    subtitles_json: Optional[str] = None
 
 
 class VideoInfo(BaseModel):
@@ -95,6 +98,8 @@ class RenderRequest(BaseModel):
     start_time: Optional[float] = None
     end_time: Optional[float] = None
     hook_title: Optional[str] = None
+    custom_subtitles: Optional[list[dict]] = None
+    custom_transcript: Optional[str] = None
 
 
 class SSEEvent(BaseModel):

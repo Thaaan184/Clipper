@@ -14,7 +14,7 @@ import yt_dlp
 
 from config import settings
 from services.reframe import reframe, loudnorm
-from services.subtitles import generate_subtitle
+from services.subtitles import generate_subtitle, build_ass_from_cues
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +86,8 @@ async def render_clip(
     subtitle_lang: str,
     progress_queue: Any,
     db_path: str,
+    custom_subtitles: list[dict] | None = None,
+    custom_transcript: str | None = None,
 ) -> str | None:
     """
     Phase 3: Download clip range + reframe + subtitle burn.
@@ -127,11 +129,25 @@ async def render_clip(
 
         raw_path = downloaded_raw
 
-        # Step 2: Generate subtitle (from raw audio)
+        # Step 2: Generate subtitle (from raw audio or custom edits)
         sub_ok = False
-        if subtitle_lang and subtitle_lang.lower() != "none":
+        subtitles_saved = None
+        transcript_saved = None
+
+        if custom_subtitles and len(custom_subtitles) > 0 and subtitle_lang != "none":
+            await emit(40, "Menerapkan subtitle kustom yang telah diedit...")
+            ass_content = build_ass_from_cues(custom_subtitles, clip_start_offset=0.0)
+            sub_path.write_text(ass_content, encoding="utf-8")
+            sub_ok = True
+            subtitles_saved = custom_subtitles
+            transcript_saved = custom_transcript or " ".join(c.get("text", "") for c in custom_subtitles)
+            await emit(60, f"Subtitle kustom siap, reframe ke 9:16 [{layout}]...")
+        elif subtitle_lang and subtitle_lang.lower() != "none":
             await emit(40, "Download selesai, generate subtitle...")
-            sub_ok = await generate_subtitle(raw_path, sub_path, clip_start_offset=0.0, lang=subtitle_lang)
+            sub_ok, segments = await generate_subtitle(raw_path, sub_path, clip_start_offset=0.0, lang=subtitle_lang)
+            if sub_ok:
+                subtitles_saved = segments
+                transcript_saved = " ".join(s.get("text", "") for s in segments)
             await emit(60, f"Subtitle OK, reframe ke 9:16 [{layout}]...")
         else:
             await emit(40, "Download selesai, lewati subtitle (mode tanpa subtitle)...")
@@ -167,12 +183,17 @@ async def render_clip(
                     pass
 
         file_size = final_path.stat().st_size
-        await _update_clip(
-            db_path, clip_id,
-            status="done",
-            file_path=str(final_path),
-            file_size=file_size,
-        )
+        update_kwargs = {
+            "status": "done",
+            "file_path": str(final_path),
+            "file_size": file_size,
+        }
+        if subtitles_saved is not None:
+            update_kwargs["subtitles_json"] = json.dumps(subtitles_saved)
+        if transcript_saved is not None:
+            update_kwargs["transcript"] = transcript_saved
+
+        await _update_clip(db_path, clip_id, **update_kwargs)
         await _update_job(db_path, job_id, status="done", progress=100, phase="editor")
         await emit(100, f"Klip selesai ({file_size / 1e6:.1f} MB)")
 

@@ -4,6 +4,7 @@ Main FastAPI app — ClipForge backend.
 import asyncio
 import json
 import logging
+import re
 import uuid
 from typing import Any
 from datetime import datetime, timezone
@@ -555,9 +556,75 @@ async def retry_clip(clip_id: str, req: RenderRequest):
         job_id, clip_id, clip["video_id"], clip["url"],
         start_time, end_time,
         layout, subtitle_lang, q, str(settings.db_path),
+        custom_subtitles=req.custom_subtitles,
+        custom_transcript=req.custom_transcript,
     ))
 
     return {"job_id": job_id, "clip_id": clip_id}
+
+
+@app.get("/api/clips/{clip_id}/subtitles")
+async def get_clip_subtitles(clip_id: str):
+    """Retrieve subtitle cues and transcript for editing."""
+    async with aiosqlite.connect(str(settings.db_path)) as db:
+        db.row_factory = aiosqlite.Row
+        rows = await db.execute_fetchall(
+            "SELECT c.*, v.transcript as video_transcript FROM clips c JOIN videos v ON v.id = c.video_id WHERE c.id = ?",
+            (clip_id,),
+        )
+        if not rows:
+            raise HTTPException(404, "Klip tidak ditemukan")
+        clip = dict(rows[0])
+
+    cues = []
+    # 1. Stored subtitles_json
+    if clip.get("subtitles_json"):
+        try:
+            raw_cues = json.loads(clip["subtitles_json"])
+            for c in raw_cues:
+                start = float(c.get("start", 0))
+                end = float(c.get("end", start + c.get("duration", 3.0)))
+                cues.append({
+                    "start": round(start, 2),
+                    "end": round(end, 2),
+                    "text": c.get("text", "").strip(),
+                })
+        except Exception:
+            cues = []
+
+    # 2. If no subtitles_json, slice from video transcript
+    if not cues and clip.get("video_transcript"):
+        clip_start = float(clip["start_time"])
+        clip_end = float(clip["end_time"])
+        v_lines = clip["video_transcript"].splitlines()
+        pattern = re.compile(r"^\[(\d+):(\d+\.?\d*)\]\s*(.*)$")
+        for line in v_lines:
+            m = pattern.match(line.strip())
+            if m:
+                mins, secs, txt = int(m.group(1)), float(m.group(2)), m.group(3).strip()
+                t_sec = mins * 60 + secs
+                if clip_start <= t_sec <= clip_end:
+                    rel_start = max(0.0, round(t_sec - clip_start, 2))
+                    cues.append({
+                        "start": rel_start,
+                        "end": min(round(clip["duration"], 2), round(rel_start + 3.0, 2)),
+                        "text": txt,
+                    })
+
+    # 3. Fallback placeholder
+    if not cues:
+        cues = [{
+            "start": 0.0,
+            "end": round(float(clip.get("duration", 30.0)), 2),
+            "text": clip.get("transcript") or clip.get("hook_title") or "",
+        }]
+
+    return {
+        "clip_id": clip_id,
+        "subtitle_lang": clip.get("subtitle_lang", "id"),
+        "transcript": clip.get("transcript") or " ".join(c["text"] for c in cues if c.get("text")),
+        "cues": cues,
+    }
 
 
 @app.delete("/api/videos/{video_id}")

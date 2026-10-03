@@ -1,5 +1,6 @@
 import React, { useState } from "react"
 import MarkedFrame from "./MarkedFrame"
+import SubtitleEditorModal from "./SubtitleEditorModal"
 import { downloadClipUrl, previewClipUrl, retryClip } from "@/lib/api"
 import type { ClipInfo } from "@/lib/api"
 
@@ -28,6 +29,7 @@ function fmtTime(sec: number): string {
 export default function ClipCard({ clip, onToast, onRetry }: ClipCardProps) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
+  const [isEditingSubs, setIsEditingSubs] = useState(false)
   const [editTitle, setEditTitle] = useState(clip.hook_title)
   const [editStart, setEditStart] = useState(clip.start_time)
   const [editEnd, setEditEnd] = useState(clip.end_time)
@@ -286,7 +288,7 @@ export default function ClipCard({ clip, onToast, onRetry }: ClipCardProps) {
             <>
               <button
                 className={isPlaying ? "btn-primary" : "btn-ghost"}
-                style={{ flex: 1, justifyContent: "center" }}
+                style={{ flex: 1, justifyContent: "center", padding: "0 4px", fontSize: 11 }}
                 disabled={!isDone}
                 onClick={() => setIsPlaying(!isPlaying)}
               >
@@ -294,18 +296,26 @@ export default function ClipCard({ clip, onToast, onRetry }: ClipCardProps) {
               </button>
               <button
                 className={isEditing ? "btn-primary" : "btn-ghost"}
-                style={{ flex: 1, justifyContent: "center" }}
+                style={{ flex: 1, justifyContent: "center", padding: "0 4px", fontSize: 11 }}
                 onClick={() => setIsEditing(!isEditing)}
               >
-                {isEditing ? "Tutup Edit" : "Edit"}
+                {isEditing ? "Tutup" : "Edit"}
               </button>
               <button
                 className="btn-ghost"
-                style={{ flex: 1, justifyContent: "center" }}
+                style={{ flex: 1, justifyContent: "center", padding: "0 4px", fontSize: 11 }}
+                onClick={() => setIsEditingSubs(true)}
+                title="Edit teks transkrip subtitle klip ini"
+              >
+                Subtitle
+              </button>
+              <button
+                className="btn-ghost"
+                style={{ flex: 1, justifyContent: "center", padding: "0 4px", fontSize: 11 }}
                 disabled={!isDone}
                 onClick={handleDownload}
               >
-                {isDone ? "Download" : "Memproses..."}
+                {isDone ? "Unduh" : "..."}
               </button>
             </>
           )}
@@ -454,8 +464,39 @@ export default function ClipCard({ clip, onToast, onRetry }: ClipCardProps) {
                 {saving ? "Memproses..." : "Render Ulang Klip"}
               </button>
             </div>
+
+            <button
+              type="button"
+              className="btn-ghost"
+              style={{
+                width: "100%",
+                justifyContent: "center",
+                fontSize: 11,
+                borderStyle: "dashed",
+                color: "#FF6A00",
+                borderColor: "#FF6A00",
+                marginTop: 4,
+              }}
+              onClick={() => {
+                setIsEditing(false)
+                setIsEditingSubs(true)
+              }}
+            >
+              ✏️ KOREKSI TEKS SUBTITLE & TRANSKRIP
+            </button>
           </div>
         )}
+
+        {/* Subtitle Editor Modal */}
+        <SubtitleEditorModal
+          clip={clip}
+          isOpen={isEditingSubs}
+          onClose={() => setIsEditingSubs(false)}
+          onSaveSuccess={() => {
+            if (onRetry) onRetry()
+          }}
+          onToast={onToast}
+        />
       </MarkedFrame>
     </div>
   )

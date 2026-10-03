@@ -31,6 +31,8 @@ export interface ClipInfo {
   status: string
   error_msg: string | null
   file_path: string | null
+  transcript?: string | null
+  subtitles_json?: string | null
 }
 
 export interface VideoInfo {
@@ -88,12 +90,33 @@ export interface RescanParams {
   layout?: string
 }
 
+export interface SubtitleCue {
+  start: number
+  end: number
+  text: string
+}
+
+export interface ClipSubtitlesResponse {
+  clip_id: string
+  subtitle_lang: string
+  transcript: string
+  cues: SubtitleCue[]
+}
+
 export interface EditClipParams {
   layout?: string
   subtitle_lang?: string
   start_time?: number
   end_time?: number
   hook_title?: string
+  custom_subtitles?: SubtitleCue[]
+  custom_transcript?: string
+}
+
+export async function getClipSubtitles(clipId: string): Promise<ClipSubtitlesResponse> {
+  const res = await fetch(`${API_BASE}/clips/${clipId}/subtitles`)
+  if (!res.ok) throw new Error("Gagal mengambil transkrip subtitle")
+  return res.json()
 }
 
 export async function deleteProject(videoId: string): Promise<{ deleted: string }> {
