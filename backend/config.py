@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     max_disk_gb: int = 10
 
     # Whisper
-    whisper_model: str = "large-v3"
+    whisper_model: str = "base"
     whisper_device: str = "cpu"
 
     # CORS

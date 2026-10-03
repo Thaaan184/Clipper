@@ -10,19 +10,26 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+def _escape_filter_path(p: Path) -> str:
+    """Escape path for FFmpeg filter argument (colons, backslashes, quotes)."""
+    return str(p.resolve()).replace("\\", "/").replace(":", r"\:").replace("'", r"\'")
+
+
 def _blur_bg_cmd(input_path: Path, output_path: Path, subtitle_path: Path | None = None) -> list[str]:
     """
     Layout: blur background fill, original centered.
     Safe for game content — full HUD/minimap visible.
+    Optimized: downscales bg to 270x480 for 10x faster blur.
     """
     filters = (
-        "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,"
-        "crop=1080:1920,boxblur=20:5[bg];"
+        "[0:v]scale=270:480:force_original_aspect_ratio=increase,"
+        "crop=270:480,boxblur=8:1,scale=1080:1920[bg];"
         "[0:v]scale=1080:-2[fg];"
         "[bg][fg]overlay=(W-w)/2:(H-h)/2[v]"
     )
-    if subtitle_path:
-        filters += f";[v]ass={subtitle_path}[vout]"
+    if subtitle_path and subtitle_path.exists():
+        sub_esc = _escape_filter_path(subtitle_path)
+        filters += f";[v]ass='{sub_esc}'[vout]"
         map_video = "[vout]"
     else:
         map_video = "[v]"
@@ -30,8 +37,8 @@ def _blur_bg_cmd(input_path: Path, output_path: Path, subtitle_path: Path | None
     return [
         "ffmpeg", "-y", "-i", str(input_path),
         "-filter_complex", filters,
-        "-map", map_video, "-map", "0:a",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+        "-map", map_video, "-map", "0:a?",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
         "-c:a", "aac", "-b:a", "128k",
         "-pix_fmt", "yuv420p",
         "-movflags", "+faststart",
@@ -44,9 +51,10 @@ def _center_crop_cmd(input_path: Path, output_path: Path, subtitle_path: Path | 
     Layout: center crop to 9:16.
     Best for FPS games — focuses on crosshair area.
     """
-    filters = "[0:v]crop=ih*9/16:ih[v]"
-    if subtitle_path:
-        filters += f";[v]ass={subtitle_path}[vout]"
+    filters = "[0:v]crop=ih*9/16:ih,scale=1080:1920[v]"
+    if subtitle_path and subtitle_path.exists():
+        sub_esc = _escape_filter_path(subtitle_path)
+        filters += f";[v]ass='{sub_esc}'[vout]"
         map_video = "[vout]"
     else:
         map_video = "[v]"
@@ -54,11 +62,10 @@ def _center_crop_cmd(input_path: Path, output_path: Path, subtitle_path: Path | 
     return [
         "ffmpeg", "-y", "-i", str(input_path),
         "-filter_complex", filters,
-        "-map", map_video, "-map", "0:a",
+        "-map", map_video, "-map", "0:a?",
         "-c:v", "libx264", "-preset", "fast", "-crf", "22",
         "-c:a", "aac", "-b:a", "128k",
         "-pix_fmt", "yuv420p",
-        "-vf", "scale=1080:1920",
         "-movflags", "+faststart",
         str(output_path),
     ]
@@ -74,8 +81,9 @@ def _stacked_cmd(input_path: Path, output_path: Path, subtitle_path: Path | None
         "[0:v]crop=iw*0.7:ih*0.7:iw*0.15:ih*0.15,scale=1080:1200[game];"
         "[cam][game]vstack[v]"
     )
-    if subtitle_path:
-        filters += f";[v]ass={subtitle_path}[vout]"
+    if subtitle_path and subtitle_path.exists():
+        sub_esc = _escape_filter_path(subtitle_path)
+        filters += f";[v]ass='{sub_esc}'[vout]"
         map_video = "[vout]"
     else:
         map_video = "[v]"
@@ -83,7 +91,7 @@ def _stacked_cmd(input_path: Path, output_path: Path, subtitle_path: Path | None
     return [
         "ffmpeg", "-y", "-i", str(input_path),
         "-filter_complex", filters,
-        "-map", map_video, "-map", "0:a",
+        "-map", map_video, "-map", "0:a?",
         "-c:v", "libx264", "-preset", "fast", "-crf", "22",
         "-c:a", "aac", "-b:a", "128k",
         "-pix_fmt", "yuv420p",

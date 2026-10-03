@@ -91,14 +91,14 @@ async def run_ingest(
         # Step 2: Get transcript
         await emit("ingest", 30, "Mengambil transkrip...")
         yt_video_id = _extract_video_id(url)
-        transcript, source = await get_transcript(yt_video_id, subtitle_lang)
+        transcript, source = await get_transcript(yt_video_id, subtitle_lang, url=url)
 
         audio_path = None
         if not transcript:
             await emit("ingest", 35, "Tidak ada CC — download audio untuk transkripsi Whisper...")
             audio_path = await download_audio(url, video_id)
             if audio_path:
-                transcript, source = await get_transcript(yt_video_id, subtitle_lang, audio_path)
+                transcript, source = await get_transcript(yt_video_id, subtitle_lang, audio_path=audio_path)
 
         if not transcript:
             raise ValueError("Transkrip tidak tersedia. Video mungkin privat atau CC dinonaktifkan.")

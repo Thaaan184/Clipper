@@ -34,29 +34,29 @@ async def _update_job(db_path: str, job_id: str, **kwargs):
         await db.commit()
 
 
-def _download_clip_range(url: str, start: float, end: float, output_path: Path) -> bool:
+def _download_clip_range(url: str, start: float, end: float, output_path: Path) -> Path | None:
     """Download only a time range of the video using yt-dlp."""
+    base_tmpl = str(output_path.with_suffix(""))
     ydl_opts = {
-        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
-        "outtmpl": str(output_path.with_suffix("")),  # yt-dlp adds ext
+        "format": "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
+        "outtmpl": base_tmpl + ".%(ext)s",
         "quiet": True,
         "no_warnings": True,
         "no_playlist": True,
-        "merge_output_format": "mp4",
         "download_ranges": yt_dlp.utils.download_range_func([], [[start, end]]),
         "force_keyframes_at_cuts": True,
-        "postprocessors": [{
-            "key": "FFmpegVideoConvertor",
-            "preferedformat": "mp4",
-        }],
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
-        return True
+        candidates = list(output_path.parent.glob(f"{output_path.stem}.*"))
+        valid = [c for c in candidates if not c.name.endswith(".part") and not c.name.endswith(".ytdl")]
+        if valid:
+            return valid[0]
+        return None
     except Exception as e:
         logger.error("yt-dlp clip download failed: %s", e)
-        return False
+        return None
 
 
 async def render_clip(
@@ -102,18 +102,14 @@ async def render_clip(
         await emit(10, f"Mengunduh range {int(start_time//60)}:{int(start_time%60):02d}–{int(end_time//60)}:{int(end_time%60):02d}...")
 
         loop = asyncio.get_event_loop()
-        ok = await loop.run_in_executor(
+        downloaded_raw = await loop.run_in_executor(
             None, _download_clip_range, url, start_time, end_time, raw_path
         )
 
-        # yt-dlp may produce raw_path or raw_path.with_suffix('.mp4') — check both
-        if not ok or not raw_path.exists():
-            # Try with .mp4 extension appended
-            alt = raw_dir / f"{clip_id}_raw.mp4.mp4"
-            if alt.exists():
-                alt.rename(raw_path)
-            else:
-                raise RuntimeError("Download klip gagal")
+        if not downloaded_raw or not downloaded_raw.exists():
+            raise RuntimeError("Download klip gagal")
+
+        raw_path = downloaded_raw
 
         await emit(40, "Download selesai, generate subtitle...")
 

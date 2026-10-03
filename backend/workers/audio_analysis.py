@@ -4,6 +4,7 @@ Downloads audio-only stream for analysis.
 """
 import asyncio
 import logging
+import subprocess
 import numpy as np
 from pathlib import Path
 from config import settings
@@ -61,7 +62,30 @@ async def detect_energy_spikes(
         loop = asyncio.get_event_loop()
 
         def _analyze():
-            y, sr = librosa.load(str(audio_path), sr=16000, mono=True)
+            wav_path = audio_path
+            temp_wav = None
+            if audio_path.suffix.lower() != ".wav":
+                temp_wav = audio_path.with_suffix(".temp16k.wav")
+                try:
+                    subprocess.run(
+                        ["ffmpeg", "-y", "-i", str(audio_path), "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", str(temp_wav)],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        check=True,
+                    )
+                    wav_path = temp_wav
+                except Exception:
+                    wav_path = audio_path
+
+            try:
+                import soundfile as sf
+                y, sr = sf.read(str(wav_path), dtype="float32")
+            except Exception:
+                y, sr = librosa.load(str(wav_path), sr=16000, mono=True)
+            finally:
+                if temp_wav and temp_wav.exists():
+                    temp_wav.unlink(missing_ok=True)
+
             hop = 8000  # 0.5s frames
             rms = librosa.feature.rms(y=y, frame_length=hop * 2, hop_length=hop)[0]
             times = librosa.frames_to_time(range(len(rms)), sr=sr, hop_length=hop)

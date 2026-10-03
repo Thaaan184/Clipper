@@ -86,9 +86,11 @@ async def scan(req: ScanRequest, request: Request):
 
     now = datetime.utcnow().isoformat()
     async with aiosqlite.connect(str(settings.db_path)) as db:
+        db.row_factory = aiosqlite.Row
         # Check pending jobs count
         row = await db.execute_fetchall("SELECT COUNT(*) as c FROM jobs WHERE status IN ('pending','running')")
-        if row and row[0]["c"] >= settings.max_pending_jobs:
+        pending_count = row[0]["c"] if row else 0
+        if pending_count >= settings.max_pending_jobs:
             raise HTTPException(503, "Server sibuk, coba beberapa menit lagi")
 
         await db.execute(
@@ -159,6 +161,14 @@ async def _run_full_pipeline(job_id: str, video_id: str, req: ScanRequest, q: as
             ))
 
         await asyncio.gather(*render_tasks, return_exceptions=True)
+
+        # Update main scan job to done
+        async with aiosqlite.connect(db_path) as db:
+            await db.execute(
+                "UPDATE jobs SET status = 'done', phase = 'done', progress = 100, message = 'Semua klip selesai diproses', updated_at = ? WHERE id = ?",
+                (datetime.utcnow().isoformat(), job_id),
+            )
+            await db.commit()
 
         # Fetch final clip list for "done" event
         async with aiosqlite.connect(db_path) as db:

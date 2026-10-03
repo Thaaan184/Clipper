@@ -93,14 +93,17 @@ Temukan tepat {clip_count} momen terbaik. Output JSON array saja."""
 
         raw = (response.choices[0].message.content or "").strip()
 
-        # Strip markdown code fences if present
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-            raw = raw.strip()
-
-        moments = json.loads(raw)
+        # Extract JSON array robustly
+        import re
+        match = re.search(r"\[\s*\{[\s\S]*\}\s*\]", raw)
+        if match:
+            moments = json.loads(match.group(0))
+        else:
+            if raw.startswith("```"):
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+            moments = json.loads(raw.strip())
         if not isinstance(moments, list):
             raise ValueError("LLM returned non-list")
 

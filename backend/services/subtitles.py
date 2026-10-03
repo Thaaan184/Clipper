@@ -101,6 +101,8 @@ async def generate_subtitle(
             settings.whisper_model,
             device=settings.whisper_device,
             compute_type="int8",
+            cpu_threads=4,
+            local_files_only=True,
         )
 
         loop = asyncio.get_event_loop()
