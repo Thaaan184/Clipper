@@ -11,6 +11,9 @@ services:
       - CF_BIND=0.0.0.0
       - CF_PORT=8000
       - CF_ALLOWED_HOSTS=youtube.com,www.youtube.com,m.youtube.com,youtu.be
+      - CF_LLM_BASE_URL=${CF_LLM_BASE_URL:-${LLM_API_BASE:-}}
+      - CF_LLM_API_KEY=${CF_LLM_API_KEY:-${LLM_API_KEY:-}}
+      - CF_LLM_MODEL=${CF_LLM_MODEL:-gemini-2.5-flash}
     volumes:
       - clipforge_data:/app/data
     restart: unless-stopped
