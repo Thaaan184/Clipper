@@ -9,8 +9,9 @@ from typing import Any
 from urllib.parse import urlparse
 
 import aiosqlite
-from fastapi import APIRouter, Depends, Header, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from clipforge.core.config import settings
 from clipforge.core.errors import HostNotAllowedError, InvalidUrlError, JobNotFoundError
@@ -23,6 +24,7 @@ from clipforge.jobs.pipeline import (
     stage_analyze_signals,
     stage_fetch_signals,
     stage_fuse_candidates,
+    stage_render_clips,
     stage_scout_rerank,
     stage_targeted_asr,
     stage_validate,
@@ -268,3 +270,107 @@ async def get_job_candidates(
 ) -> CandidatesResponse:
     """Retrieve proposed candidate windows and signal evidence for review."""
     return await get_candidates_for_job(job_id=job_id, db=db)
+
+
+class CandidateUpdatePayload(BaseModel):
+    status: str | None = None  # kept | rejected | proposed
+    user_start_s: float | None = None
+    user_end_s: float | None = None
+
+
+@router.patch("/candidates/{candidate_id}")
+async def update_candidate_review(
+    candidate_id: str,
+    payload: CandidateUpdatePayload,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> dict[str, Any]:
+    """Update review status or manual timing boundaries for a candidate."""
+    async with db.execute(
+        "SELECT id, start_s, end_s FROM candidates WHERE id = ?", (candidate_id,)
+    ) as cur:
+        row = await cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Candidate not found")
+
+    updates = []
+    params: list[Any] = []
+
+    if payload.status is not None:
+        updates.append("status = ?")
+        params.append(payload.status)
+
+    if payload.user_start_s is not None:
+        updates.append("user_start_s = ?")
+        params.append(payload.user_start_s)
+
+    if payload.user_end_s is not None:
+        updates.append("user_end_s = ?")
+        params.append(payload.user_end_s)
+
+    if updates:
+        params.append(candidate_id)
+        await db.execute(f"UPDATE candidates SET {', '.join(updates)} WHERE id = ?", tuple(params))
+        await db.commit()
+
+    return {"status": "updated", "candidate_id": candidate_id}
+
+
+@router.post("/{job_id}/render", status_code=status.HTTP_202_ACCEPTED)
+async def trigger_job_render(
+    job_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> dict[str, Any]:
+    """Trigger rendering for approved/kept candidate clips in this job."""
+    async with db.execute(
+        "SELECT id, source_url, genre, language, params_json FROM jobs WHERE id = ?", (job_id,)
+    ) as cur:
+        row = await cur.fetchone()
+        if not row:
+            raise JobNotFoundError(f"Job {job_id} not found")
+        source_url, genre, language, params_json = row[1], row[2], row[3], row[4]
+
+    params = json.loads(params_json) if params_json else {}
+    stage_input = {
+        "job_id": job_id,
+        "source_url": source_url,
+        "genre": genre,
+        "language": language,
+        "clip_count": params.get("clip_count", 5),
+        "reframe_mode": params.get("reframe_mode", "blur"),
+        "subtitle_style": params.get("subtitle_style", "classic_white"),
+    }
+
+    await transition_job_status(db, job_id, JobStatus.RENDERING)
+
+    async def _run_render_task() -> None:
+        from clipforge.db.connection import get_db_connection
+
+        async with get_db_connection() as task_db:
+            try:
+                success = await engine.run_stage(
+                    db=task_db,
+                    job_id=job_id,
+                    stage=StageName.RENDER_CLIPS,
+                    stage_fn=stage_render_clips,
+                    stage_input=stage_input,
+                    progress=1.0,
+                )
+                if success:
+                    await transition_job_status(task_db, job_id, JobStatus.DONE, progress=1.0)
+                else:
+                    await transition_job_status(
+                        task_db, job_id, JobStatus.FAILED, error_code="RENDER_FAILED"
+                    )
+            except Exception as exc:
+                logger.error("Render execution failed", job_id=job_id, error=str(exc))
+                await transition_job_status(
+                    task_db,
+                    job_id,
+                    JobStatus.FAILED,
+                    error_code="RENDER_FAILED",
+                    error_message=str(exc),
+                )
+
+    task = asyncio.create_task(_run_render_task())
+    engine._active_tasks[f"render_{job_id}"] = task
+    return {"status": "rendering", "job_id": job_id}

@@ -1,0 +1,4 @@
+This directory contains the Liberation Sans font family.
+License: SIL Open Font License, Version 1.1 (OFL)
+Copyright: (c) 2012 Red Hat, Inc.
+Website: https://github.com/liberationfonts/liberation-fonts

@@ -1,0 +1,14 @@
+name: neon_glow
+font_name: Liberation Sans
+font_size: 50
+primary_color: "&H00FFFF00&"
+active_color: "&H00FF00FF&"
+outline_color: "&H00222222&"
+back_color: "&H00000000&"
+outline: 4
+shadow: 4
+bold: 1
+italic: 0
+alignment: 2
+margin_v: 240
+uppercase: false

@@ -1,0 +1,14 @@
+name: classic_white
+font_name: Liberation Sans
+font_size: 48
+primary_color: "&H00FFFFFF&"
+active_color: "&H00008CFF&"
+outline_color: "&H00000000&"
+back_color: "&H80000000&"
+outline: 3
+shadow: 2
+bold: 1
+italic: 0
+alignment: 2
+margin_v: 240
+uppercase: false

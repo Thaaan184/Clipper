@@ -8,14 +8,12 @@ import numpy as np
 import pytest
 import scipy.io.wavfile as wavfile
 
-from clipforge.api.app import app
 from clipforge.core.config import settings
 from clipforge.db.connection import get_db_connection
 from clipforge.db.migrator import run_migrations
 from clipforge.ingest.models import VideoMetadata
 from clipforge.jobs.pipeline import (
     stage_analyze_signals,
-    stage_fetch_signals,
     stage_fuse_candidates,
     stage_scout_rerank,
     stage_targeted_asr,
@@ -95,7 +93,24 @@ async def test_pipeline_fase4_full_quality_cycle(tmp_path: Path):
             {"offset_s": 55.0, "message": "clip bang clip ini"},
         ]
         chat_lines = [
-            json.dumps({"replayChatItemAction": {"actions": [{"addChatItemAction": {"item": {"liveChatTextMessageRenderer": {"message": {"runs": [{"text": e["message"]}]}, "videoOffsetTimeMsec": str(int(e["offset_s"] * 1000))}}}}]}})
+            json.dumps(
+                {
+                    "replayChatItemAction": {
+                        "actions": [
+                            {
+                                "addChatItemAction": {
+                                    "item": {
+                                        "liveChatTextMessageRenderer": {
+                                            "message": {"runs": [{"text": e["message"]}]},
+                                            "videoOffsetTimeMsec": str(int(e["offset_s"] * 1000)),
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }
+            )
             for e in chat_events
         ]
         chat_path.write_text("\n".join(chat_lines), encoding="utf-8")
@@ -112,6 +127,7 @@ async def test_pipeline_fase4_full_quality_cycle(tmp_path: Path):
         # 6. Stage 5: Targeted ASR
         # Mock Whisper model inside transcribe_candidate_slice
         from unittest.mock import MagicMock
+
         mock_seg = MagicMock()
         mock_seg.text = "squad rata semua"
         mock_w1 = MagicMock()

@@ -153,6 +153,116 @@ def _download_sync(
     )
 
 
+async def download_video_range(
+    source_url: str,
+    start_s: float,
+    end_s: float,
+    out_path: Path,
+    pad_s: float = 3.0,
+    cookies_path: Path | None = None,
+) -> Path:
+    """
+    Download or extract a precise video segment for a candidate window with padding,
+    then perform exact FFmpeg re-encode trimming to ensure accurate start and keyframes.
+    """
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    duration = max(1.0, end_s - start_s)
+
+    # Local file or test source
+    if not source_url.startswith("http"):
+        local_src = Path(source_url)
+        if not local_src.exists():
+            raise FileNotFoundError(f"Local video source not found: {source_url}")
+
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-ss",
+            f"{max(0.0, start_s):.3f}",
+            "-t",
+            f"{duration:.3f}",
+            "-i",
+            str(local_src),
+            "-c:v",
+            "libx264",
+            "-c:a",
+            "aac",
+            "-pix_fmt",
+            "yuv420p",
+            "-loglevel",
+            "error",
+            str(out_path),
+        ]
+        proc = subprocess.run(cmd, capture_output=True)
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"FFmpeg trim failed: {proc.stderr.decode('utf-8', errors='replace')}"
+            )
+        return out_path
+
+    # YouTube URL via yt-dlp download_ranges
+    def range_callback(info_dict: dict[str, Any], ydl: Any) -> list[dict[str, Any]]:
+        return [
+            {
+                "start_time": max(0.0, start_s - pad_s),
+                "end_time": end_s + pad_s,
+            }
+        ]
+
+    temp_pad = out_path.parent / f"pad_{out_path.name}"
+    ydl_opts: dict[str, Any] = {
+        "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+        "outtmpl": str(temp_pad),
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+        "download_ranges": range_callback,
+        "force_keyframes_at_cuts": True,
+    }
+    if cookies_path and cookies_path.exists():
+        ydl_opts["cookiefile"] = str(cookies_path)
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, lambda: yt_dlp.YoutubeDL(ydl_opts).download([source_url]))
+
+    # Now trim the exact segment from padded video
+    padded_candidates = list(out_path.parent.glob(f"pad_{out_path.stem}*"))
+    if not padded_candidates:
+        raise FileNotFoundError("Padded download file not found")
+
+    padded_file = padded_candidates[0]
+    actual_offset = max(0.0, min(pad_s, start_s))
+
+    trim_cmd = [
+        "ffmpeg",
+        "-y",
+        "-ss",
+        f"{actual_offset:.3f}",
+        "-t",
+        f"{duration:.3f}",
+        "-i",
+        str(padded_file),
+        "-c:v",
+        "libx264",
+        "-c:a",
+        "aac",
+        "-pix_fmt",
+        "yuv420p",
+        "-loglevel",
+        "error",
+        str(out_path),
+    ]
+    proc = subprocess.run(trim_cmd, capture_output=True)
+    padded_file.unlink(missing_ok=True)
+
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"Exact range trim failed: {proc.stderr.decode('utf-8', errors='replace')}"
+        )
+
+    return out_path
+
+
 async def download_ingest_assets(
     metadata: VideoMetadata,
     output_dir: Path,

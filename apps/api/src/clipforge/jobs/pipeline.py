@@ -1,6 +1,8 @@
 """Pipeline stage execution implementations for Ingest, Signals, and Fusion."""
 
 import json
+import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -16,15 +18,24 @@ from clipforge.fusion.candidates import make_candidates
 from clipforge.fusion.fuse import fuse
 from clipforge.fusion.presets import load_preset
 from clipforge.fusion.snap import refine_boundaries
-from clipforge.ingest.download import download_ingest_assets
+from clipforge.ingest.download import download_ingest_assets, download_video_range
 from clipforge.ingest.models import VideoMetadata
 from clipforge.ingest.probe import probe_video
 from clipforge.llm.client import evaluate_candidate_scout
 from clipforge.quality.gate import evaluate_quality_gate
+from clipforge.render.engine import render_single_clip
 from clipforge.signals.audio import extract_audio_features
 from clipforge.signals.chat import extract_chat_features
 from clipforge.signals.heatmap import extract_heatmap_features
 from clipforge.signals.models import AudioFeatures, ChatFeatures, HeatmapFeatures
+from clipforge.subtitles import (
+    SubtitleWord,
+    create_kinetic_chunks,
+    export_srt,
+    generate_ass_script,
+    load_style_preset,
+    validate_and_normalize_words,
+)
 from clipforge.timeline.models import TimelineResponse
 from clipforge.timeline.service import get_candidates_for_job, save_timeline_artifact
 
@@ -522,3 +533,176 @@ async def stage_scout_rerank(
         "top_title": valid_cands[0].title if valid_cands else "None",
     }
     return [str(timeline_file)], metrics
+
+
+# ---------------------------------------------------------
+# Stage 7: RENDER_CLIPS
+# ---------------------------------------------------------
+async def stage_render_clips(
+    db: aiosqlite.Connection,
+    job_id: str,
+    stage_input: dict[str, Any],
+) -> tuple[list[str], dict[str, Any]]:
+    job_dir = get_job_dir(job_id)
+    clips_dir = job_dir / "clips"
+    clips_dir.mkdir(parents=True, exist_ok=True)
+    transcripts_dir = job_dir / "transcripts"
+
+    source_url = stage_input.get("source_url", "")
+    target_count = int(stage_input.get("clip_count", 5))
+    reframe_mode = stage_input.get("reframe_mode", "blur")
+    subtitle_style = stage_input.get("subtitle_style", "classic_white")
+
+    # Fetch kept or top candidates from DB
+    query = """
+        SELECT id, rank, start_s, end_s, duration_s, title, category
+        FROM candidates
+        WHERE job_id = ? AND status != 'rejected'
+        ORDER BY rank ASC, final_score DESC
+        LIMIT ?
+    """
+    candidates_to_render = []
+    async with db.execute(query, (job_id, target_count)) as cur:
+        async for r in cur:
+            candidates_to_render.append(
+                {
+                    "id": r[0],
+                    "rank": r[1],
+                    "start_s": float(r[2]),
+                    "end_s": float(r[3]),
+                    "duration_s": float(r[4]),
+                    "title": r[5],
+                    "category": r[6],
+                }
+            )
+
+    rendered_files: list[str] = []
+    qa_passed_count = 0
+    style_preset = load_style_preset(subtitle_style)
+
+    for cand in candidates_to_render:
+        cand_id = cand["id"]
+        clip_id = str(uuid.uuid4())
+        clip_folder = clips_dir / clip_id
+        clip_folder.mkdir(parents=True, exist_ok=True)
+
+        raw_video = clip_folder / "raw.mp4"
+
+        # 1. Download or trim raw video segment
+        try:
+            await download_video_range(
+                source_url=source_url,
+                start_s=cand["start_s"],
+                end_s=cand["end_s"],
+                out_path=raw_video,
+                cookies_path=settings.cookies_file,
+            )
+        except Exception as exc:
+            logger.error("failed_to_download_clip_range", clip_id=clip_id, error=str(exc))
+            continue
+
+        # 2. Prepare words and kinetic subtitle script
+        words_for_clip: list[SubtitleWord] = []
+        tr_file = transcripts_dir / f"{cand_id}.json"
+        if tr_file.exists():
+            try:
+                tr_data = CandidateTranscript.model_validate_json(
+                    tr_file.read_text(encoding="utf-8")
+                )
+                for w in tr_data.words:
+                    # Convert to clip_s coordinates: 0.0s is start of clip
+                    clip_start = max(0.0, w.start_s - cand["start_s"])
+                    clip_end = max(clip_start + 0.04, w.end_s - cand["start_s"])
+                    words_for_clip.append(
+                        SubtitleWord(
+                            idx=w.idx,
+                            start_s=round(clip_start, 3),
+                            end_s=round(clip_end, 3),
+                            text=w.text,
+                            confidence=w.confidence,
+                        )
+                    )
+            except Exception as exc:
+                logger.warning("transcript_parse_for_clip_failed", clip_id=clip_id, error=str(exc))
+
+        val_words = validate_and_normalize_words(words_for_clip, clip_duration_s=cand["duration_s"])
+        chunks = create_kinetic_chunks(val_words)
+        ass_content = generate_ass_script(chunks, style=style_preset)
+
+        ass_file = clip_folder / "subs.ass"
+        ass_file.write_text(ass_content, encoding="utf-8")
+
+        srt_file = clip_folder / "clip.srt"
+        srt_file.write_text(export_srt(chunks), encoding="utf-8")
+
+        # 3. Render clip via engine
+        render_res = render_single_clip(
+            clip_dir=clip_folder,
+            raw_video=raw_video,
+            ass_path=ass_file,
+            mode=reframe_mode,
+            expected_duration_s=cand["duration_s"],
+        )
+
+        now_iso = datetime.now(UTC).isoformat()
+        clip_status = "done" if render_res["success"] else "failed"
+        if render_res["success"]:
+            qa_passed_count += 1
+            if render_res["final_path"]:
+                rendered_files.append(render_res["final_path"])
+
+        # 4. Insert clip into DB
+        r_params_json = json.dumps({"reframe_mode": reframe_mode, "subtitle_style": subtitle_style})
+        qa_json_str = json.dumps(render_res["qa"])
+
+        await db.execute(
+            """
+            INSERT INTO clips (
+                id, candidate_id, job_id, status, video_path, thumb_path, srt_path,
+                width, height, duration_s, render_params_json, qa_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 1080, 1920, ?, ?, ?, ?)
+            """,
+            (
+                clip_id,
+                cand_id,
+                job_id,
+                clip_status,
+                render_res["final_path"],
+                render_res["thumb_path"],
+                str(srt_file),
+                cand["duration_s"],
+                r_params_json,
+                qa_json_str,
+                now_iso,
+            ),
+        )
+
+        # 5. Insert subtitle track & words into DB
+        track_id = str(uuid.uuid4())
+        await db.execute(
+            """
+            INSERT INTO subtitle_tracks (id, clip_id, revision, source, language, style_json, created_at)
+            VALUES (?, ?, 1, 'asr', 'id', ?, ?)
+            """,
+            (track_id, clip_id, json.dumps({"preset": subtitle_style}), now_iso),
+        )
+
+        for subw in val_words:
+            await db.execute(
+                """
+                INSERT INTO subtitle_words (track_id, idx, start_s, end_s, text, confidence)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (track_id, subw.idx, subw.start_s, subw.end_s, subw.text, subw.confidence),
+            )
+
+        # Mark candidate as rendered
+        await db.execute("UPDATE candidates SET status = 'rendered' WHERE id = ?", (cand_id,))
+
+    await db.commit()
+
+    metrics = {
+        "clips_rendered": len(rendered_files),
+        "qa_passed_count": qa_passed_count,
+    }
+    return rendered_files, metrics

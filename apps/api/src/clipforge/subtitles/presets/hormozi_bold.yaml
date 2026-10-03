@@ -1,0 +1,14 @@
+name: hormozi_bold
+font_name: Liberation Sans
+font_size: 58
+primary_color: "&H0000FFFF&"
+active_color: "&H0000FF00&"
+outline_color: "&H00000000&"
+back_color: "&H00000000&"
+outline: 5
+shadow: 3
+bold: 1
+italic: 0
+alignment: 2
+margin_v: 260
+uppercase: true

@@ -1,0 +1,14 @@
+name: mrbeast_box
+font_name: Liberation Sans
+font_size: 54
+primary_color: "&H00FFFFFF&"
+active_color: "&H0000D7FF&"
+outline_color: "&H00000000&"
+back_color: "&H00000000&"
+outline: 6
+shadow: 4
+bold: 1
+italic: 0
+alignment: 2
+margin_v: 250
+uppercase: true

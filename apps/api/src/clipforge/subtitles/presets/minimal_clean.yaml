@@ -1,0 +1,14 @@
+name: minimal_clean
+font_name: Liberation Sans
+font_size: 42
+primary_color: "&H00FFFFFF&"
+active_color: "&H00CCCCCC&"
+outline_color: "&H00000000&"
+back_color: "&H00000000&"
+outline: 2
+shadow: 1
+bold: 0
+italic: 0
+alignment: 2
+margin_v: 220
+uppercase: false
