@@ -37,6 +37,7 @@ async def run_scout(
     progress_queue: asyncio.Queue,
     db_path: str,
     content_type: str = "auto",
+    video_title: str = "",
 ) -> list[str]:
     """
     Phase 2: Scout moments via LLM, write clip records.
@@ -63,6 +64,7 @@ async def run_scout(
             clip_count=clip_count,
             video_duration=video_duration,
             content_type=content_type,
+            video_title=video_title,
         )
 
         if not moments:

@@ -79,9 +79,39 @@ def _download_clip_range(url: str, start: float, end: float, output_path: Path) 
         ]
         if valid:
             return valid[0]
+    except Exception as e:
+        logger.warning("yt-dlp clip download with keyframes cut failed: %s. Retrying without force_keyframes...", e)
+
+    # Fallback without force_keyframes_at_cuts (critical for live/post-live streams)
+    try:
+        fallback_opts: dict[str, Any] = {
+            "format": "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+            "outtmpl": str(target_path),
+            "quiet": True,
+            "no_warnings": True,
+            "no_playlist": True,
+            "download_ranges": download_range_func(None, [(start, end)]),  # type: ignore
+            "remote_components": ["ejs:github"],
+        }
+        with yt_dlp.YoutubeDL(fallback_opts) as ydl:  # type: ignore
+            ydl.download([url])
+
+        if target_path.exists() and target_path.stat().st_size > 10000:
+            return target_path
+
+        candidates = list(output_path.parent.glob(f"{output_path.stem}.*"))
+        valid = [
+            c for c in candidates
+            if not c.name.endswith(".part")
+            and not c.name.endswith(".ytdl")
+            and c.suffix.lower() in [".mp4", ".mkv", ".webm"]
+            and c.stat().st_size > 10000
+        ]
+        if valid:
+            return valid[0]
         return None
     except Exception as e:
-        logger.error("yt-dlp clip download failed: %s", e)
+        logger.error("yt-dlp clip download fallback failed: %s", e)
         return None
 
 

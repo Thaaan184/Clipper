@@ -374,8 +374,37 @@ export default function Results() {
           Memuat klip...
         </div>
       ) : sorted.length === 0 ? (
-        <div style={{ color: "#9A9A9A", padding: "60px 0", textAlign: "center" }}>
-          Tidak ada klip ditemukan.
+        <div style={{ padding: "40px 20px", textAlign: "center", maxWidth: 540, margin: "0 auto" }}>
+          {video?.status === "error" || video?.error_msg ? (
+            <div style={{ background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.3)", borderRadius: 8, padding: 24, marginBottom: 20 }}>
+              <div style={{ fontSize: 18, fontWeight: 600, color: "#EF4444", marginBottom: 8 }}>
+                Proses Belum Menghasilkan Klip
+              </div>
+              <div style={{ fontSize: 13, color: "#D1D5DB", marginBottom: 16 }}>
+                {video?.error_msg || "Transkrip belum siap atau siaran live baru selesai."}
+              </div>
+              <button
+                onClick={handleRescan}
+                disabled={rescanning}
+                style={{
+                  background: "#EF4444",
+                  color: "#FFFFFF",
+                  border: "none",
+                  padding: "10px 20px",
+                  borderRadius: 6,
+                  fontWeight: 600,
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                {rescanning ? "Sedang Menganalisis..." : "⚡ Re-Scout Sekarang (Highlight Mode)"}
+              </button>
+            </div>
+          ) : (
+            <div style={{ color: "#9A9A9A", padding: "60px 0" }}>
+              Tidak ada klip ditemukan.
+            </div>
+          )}
         </div>
       ) : (
         <div

@@ -25,9 +25,10 @@ async def download_audio(url: str, video_id: str) -> Path | None:
     out_tmpl = str(settings.raw_dir / f"{video_id}.%(ext)s")
     cmd = [
         ytdlp_bin,
-        "-f", "ba/b",
+        "-f", "ba[ext=m4a]/ba/b",
         "--remote-components", "ejs:github",
-        "--extractor-args", "youtube:player_client=android,web",
+        "--skip-unavailable-fragments",
+        "--fragment-retries", "3",
         "--extract-audio",
         "--audio-format", "m4a",
         "--no-playlist",

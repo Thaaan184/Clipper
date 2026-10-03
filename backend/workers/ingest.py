@@ -95,24 +95,32 @@ async def run_ingest(
 
         audio_path = None
         if not transcript:
-            await emit("ingest", 35, "Tidak ada CC — download audio untuk transkripsi Whisper...")
-            audio_path = await download_audio(url, video_id)
-            if audio_path:
-                transcript, source = await get_transcript(yt_video_id, subtitle_lang, audio_path=audio_path)
+            # Livestream just ended, or video has disabled captions
+            if duration <= 1800:
+                await emit("ingest", 35, "Tidak ada CC — download audio untuk transkripsi Whisper...")
+                audio_path = await download_audio(url, video_id)
+                if audio_path:
+                    transcript, source = await get_transcript(yt_video_id, subtitle_lang, audio_path=audio_path)
+            else:
+                logger.info("Video %s panjang (%ds) tanpa CC. Memakai mode Instant Highlight Scout.", video_id, duration)
+                await emit("ingest", 35, "CC belum tersedia (live baru selesai). Memindai highlight momen...")
+                source = "live_highlight"
 
-        if not transcript:
-            raise ValueError("Transkrip tidak tersedia. Video mungkin privat atau CC dinonaktifkan.")
-
-        transcript_text = format_transcript_for_llm(transcript)
+        transcript_text = format_transcript_for_llm(transcript) if transcript else ""
         await _update_video(db_path, video_id, transcript=transcript_text)
-        await emit("ingest", 55, f"Transkrip OK via {source}: {len(transcript)} segmen")
+        if transcript:
+            await emit("ingest", 55, f"Transkrip OK via {source}: {len(transcript)} segmen")
+        else:
+            await emit("ingest", 55, "Mode live stream: siap scouting highlight momen")
 
         # Step 3: Audio spike detection
         await emit("ingest", 60, "Analisis energi audio...")
         spikes = []
-        if audio_path is None and duration <= 7200:
-            # Download audio for spike detection only if video <= 2 hours to save bandwidth/RAM
-            audio_path = await download_audio(url, video_id)
+        if audio_path is None and duration <= 3600:
+            try:
+                audio_path = await download_audio(url, video_id)
+            except Exception as e:
+                logger.warning("Download audio for spikes failed: %s", e)
 
         if audio_path and audio_path.exists():
             try:

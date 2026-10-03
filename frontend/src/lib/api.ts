@@ -43,6 +43,7 @@ export interface VideoInfo {
   thumbnail: string
   channel: string
   status: string
+  error_msg?: string | null
   clips: ClipInfo[]
 }
 

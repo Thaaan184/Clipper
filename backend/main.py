@@ -159,6 +159,7 @@ async def _run_full_pipeline(job_id: str, video_id: str, req: ScanRequest, q: An
             progress_queue=q,
             db_path=db_path,
             content_type=req.content_type,
+            video_title=result.get("title", ""),
         )
 
         # Phase 3: Editor — render all clips concurrently (capped by semaphore)
@@ -419,6 +420,7 @@ async def _run_rescan_pipeline(job_id: str, video_id: str, video: dict, req: Sca
             progress_queue=q,
             db_path=db_path,
             content_type=req.content_type,
+            video_title=video.get("title", ""),
         )
 
         render_tasks = []
