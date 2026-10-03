@@ -374,3 +374,77 @@ async def trigger_job_render(
     task = asyncio.create_task(_run_render_task())
     engine._active_tasks[f"render_{job_id}"] = task
     return {"status": "rendering", "job_id": job_id}
+
+
+@router.get("", response_model=list[JobResponse])
+async def list_jobs(
+    limit: int = 10,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> list[JobResponse]:
+    """List recent jobs."""
+    query = """
+        SELECT id, source_url, video_id, title, duration_s, genre, language,
+               status, stage, progress, error_code, error_message,
+               created_at, updated_at, finished_at
+        FROM jobs
+        ORDER BY created_at DESC
+        LIMIT ?
+    """
+    results: list[JobResponse] = []
+    async with db.execute(query, (limit,)) as cursor:
+        async for row in cursor:
+            results.append(
+                JobResponse(
+                    id=row[0],
+                    source_url=row[1],
+                    video_id=row[2],
+                    title=row[3],
+                    duration_s=row[4],
+                    genre=row[5],
+                    language=row[6],
+                    status=JobStatus(row[7]),
+                    stage=row[8],
+                    progress=row[9],
+                    error_code=row[10],
+                    error_message=row[11],
+                    created_at=row[12],
+                    updated_at=row[13],
+                    finished_at=row[14],
+                )
+            )
+    return results
+
+
+@router.get("/{job_id}/clips")
+async def get_job_clips(
+    job_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> dict[str, Any]:
+    """Get all rendered clips for a given job."""
+    query = """
+        SELECT id, candidate_id, file_path, srt_path, duration_s, width, height,
+               status, qa_status, qa_report_json, created_at
+        FROM clips
+        WHERE job_id = ?
+        ORDER BY created_at ASC
+    """
+    clips: list[dict[str, Any]] = []
+    async with db.execute(query, (job_id,)) as cur:
+        async for r in cur:
+            qa_rep = json.loads(r[9]) if r[9] else None
+            clips.append({
+                "id": r[0],
+                "job_id": job_id,
+                "candidate_id": r[1],
+                "file_path": r[2],
+                "srt_path": r[3],
+                "duration_s": r[4],
+                "width": r[5],
+                "height": r[6],
+                "status": r[7],
+                "qa_status": r[8],
+                "qa": qa_rep,
+                "created_at": r[10],
+            })
+    return {"clips": clips, "total": len(clips)}
+

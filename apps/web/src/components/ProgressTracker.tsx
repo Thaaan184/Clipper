@@ -1,141 +1,242 @@
 import React from "react";
 import { Job } from "../types";
-import {
-  AlertCircle,
-  CheckCircle2,
-  Clock,
-  Loader2,
-  XCircle,
-} from "lucide-react";
+import { AlertCircle, RefreshCw } from "lucide-react";
 
 interface ProgressTrackerProps {
   job: Job;
   onCancel?: () => void;
+  onRetry?: () => void;
 }
 
 const STAGES = [
-  { id: "validating", label: "Ingest & Validasi" },
-  { id: "fetching_signals", label: "Fetch Chat & Heatmap" },
-  { id: "analyzing_signals", label: "Analisis Audio & VAD" },
-  { id: "fusing_candidates", label: "Fusi Matematis" },
-  { id: "targeted_asr", label: "Targeted Whisper ASR" },
-  { id: "scout_rerank", label: "LLM Scout Verdict" },
-  { id: "awaiting_review", label: "Siap Review" },
-  { id: "rendering", label: "Render 9:16 & Subtitle" },
-  { id: "done", label: "Selesai" },
+  { id: "validating", label: "1. Ingest & Validasi", desc: "Mengekstrak metadata dan stream video." },
+  { id: "fetching_signals", label: "2. Chat & Heatmap", desc: "Mengambil chat replay dan kurva heatmap penonton." },
+  { id: "analyzing_signals", label: "3. Audio & VAD", desc: "Menghitung energi RMS, onset, dan aktivitas suara." },
+  { id: "fusing_candidates", label: "4. Fusi Matematis", desc: "Menggabungkan sinyal dan memotong kandidat awal." },
+  { id: "targeted_asr", label: "5. Whisper ASR", desc: "Transkripsi audio kata-per-kata pada kandidat." },
+  { id: "scout_rerank", label: "6. LLM Scout Verdict", desc: "LLM menilai hook, relevansi, dan memberi skor." },
+  { id: "awaiting_review", label: "7. Siap Review", desc: "Kandidat siap dikurasi dan disesuaikan." },
+  { id: "rendering", label: "8. Render 9:16", desc: "Reframe vertikal, loudnorm EBU R128, dan subtitle." },
+  { id: "done", label: "9. Selesai", desc: "Semua klip siap diunduh dan diputar." },
 ];
 
 export const ProgressTracker: React.FC<ProgressTrackerProps> = ({
   job,
   onCancel,
+  onRetry,
 }) => {
   const isFailed = job.status === "failed";
   const isCancelled = job.status === "cancelled";
   const isDone = job.status === "done";
   const isReview = job.status === "awaiting_review";
+  const isRendering = job.status === "rendering";
 
-  const getStageStatus = (_stageId: string, idx: number) => {
-    const currentIdx = STAGES.findIndex((s) => s.id === job.status);
-    if (isFailed || isCancelled) {
-      if (idx === currentIdx) return "failed";
-      return idx < currentIdx ? "completed" : "pending";
+  const pct = Math.round(Math.max(0, Math.min(100, (job.progress || 0) * 100)));
+
+  // Identify active stage index
+  let activeIdx = 0;
+  if (job.status === "created") {
+    activeIdx = 0;
+  } else {
+    const idx = STAGES.findIndex((s) => s.id === job.status);
+    if (idx !== -1) {
+      activeIdx = idx;
+    } else if (isReview) {
+      activeIdx = 6;
+    } else if (isRendering) {
+      activeIdx = 7;
+    } else if (isDone) {
+      activeIdx = 8;
     }
-    if (isDone) return "completed";
-    if (isReview && idx <= currentIdx) return "completed";
-    if (idx < currentIdx) return "completed";
-    if (idx === currentIdx) return "active";
-    return "pending";
-  };
+  }
+
+  const currentStageInfo = STAGES[activeIdx] || STAGES[0];
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl flex flex-col gap-5">
-      <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+    <div className="marked-frame border border-line bg-surface p-6 shadow-2xl flex flex-col gap-6">
+      <i className="crop-mark crop-tl" />
+      <i className="crop-mark crop-tr" />
+      <i className="crop-mark crop-bl" />
+      <i className="crop-mark crop-br" />
+
+      {/* Header bar */}
+      <div className="flex items-center justify-between border-b border-line pb-4">
         <div className="flex items-center gap-3">
-          <Clock className="w-5 h-5 text-orange-500" />
-          <h3 className="font-bold text-white text-base">Status Pemrosesan Job</h3>
-          <span className="text-xs px-2.5 py-0.5 rounded-full font-mono bg-zinc-800 text-zinc-300">
-            {job.id.slice(0, 8)}
+          <div className="w-2.5 h-2.5 bg-action" />
+          <h2 className="font-extrabold text-sm md:text-base tracking-wider uppercase text-copy">
+            STATUS PEMROSESAN VOD
+          </h2>
+          <span className="font-mono text-xs px-2.5 py-0.5 border border-line bg-card text-muted">
+            JOB: {job.id.slice(0, 8)}
           </span>
         </div>
 
-        {onCancel && !isDone && !isFailed && !isCancelled && (
-          <button
-            onClick={onCancel}
-            className="text-xs text-red-400 hover:text-red-300 font-semibold px-3 py-1 bg-red-950/40 border border-red-900/50 rounded-lg transition-colors"
-          >
-            Batalkan Job
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {isFailed && onRetry && (
+            <button
+              onClick={onRetry}
+              className="btn-action px-3 py-1 text-xs font-bold flex items-center gap-1.5"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>RETRY RENDER</span>
+            </button>
+          )}
+
+          {onCancel && !isDone && !isFailed && !isCancelled && (
+            <button
+              onClick={onCancel}
+              className="btn-ghost px-3 py-1 text-xs font-semibold text-err border-err/40 hover:border-err"
+            >
+              Batalkan Job
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Progress Bar */}
-      <div className="flex flex-col gap-1.5">
-        <div className="flex justify-between text-xs text-zinc-400">
-          <span className="font-medium capitalize">
-            {job.status.replace("_", " ")}
-          </span>
-          <span className="font-mono font-bold text-white">
-            {Math.round(job.progress * 100)}%
-          </span>
-        </div>
-        <div className="w-full bg-zinc-950 h-2.5 rounded-full overflow-hidden border border-zinc-800">
+      {/* Film Playhead Timeline Track */}
+      <div className="relative pt-6 pb-8 border-y border-line bg-card/40 px-4">
+        {/* Track Line */}
+        <div className="relative h-1 bg-line w-full rounded-none">
           <div
             className={`h-full transition-all duration-300 ${
-              isFailed
-                ? "bg-red-500"
-                : isCancelled
-                  ? "bg-zinc-600"
-                  : isDone
-                    ? "bg-green-500"
-                    : "bg-orange-500"
+              isFailed ? "bg-err" : isDone ? "bg-green-500" : "bg-action"
             }`}
-            style={{ width: `${Math.max(5, Math.min(100, job.progress * 100))}%` }}
+            style={{ width: `${pct}%` }}
           />
+
+          {/* Playhead Marker */}
+          <div
+            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-none transition-all duration-300"
+            style={{ left: `${pct}%` }}
+          >
+            <div className="w-3 h-3 bg-action rotate-45 border border-bg shadow-md" />
+            <span className="text-[10px] font-mono text-action mt-1.5 whitespace-nowrap bg-bg px-1 border border-line">
+              {pct}%
+            </span>
+          </div>
+        </div>
+
+        {/* Stage Cut Points */}
+        <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-2 mt-8">
+          {STAGES.map((st, idx) => {
+            const isCompleted = isDone || idx < activeIdx || (isReview && idx <= 6);
+            const isRunning = idx === activeIdx && !isDone && !isFailed;
+            const isCurrentFailed = idx === activeIdx && isFailed;
+
+            return (
+              <div
+                key={st.id}
+                className={`text-center flex flex-col items-center gap-1.5 ${
+                  isRunning
+                    ? "text-action"
+                    : isCompleted
+                    ? "text-copy"
+                    : isCurrentFailed
+                    ? "text-err"
+                    : "text-zinc-600"
+                }`}
+              >
+                <div
+                  className={`w-3.5 h-3.5 border transition-colors ${
+                    isCompleted
+                      ? "bg-copy border-copy"
+                      : isRunning
+                      ? "bg-action border-action animate-pulse"
+                      : isCurrentFailed
+                      ? "bg-err border-err"
+                      : "bg-surface border-line"
+                  }`}
+                />
+                <span className="text-[11px] font-semibold leading-tight line-clamp-2">
+                  {st.label}
+                </span>
+                <span className="text-[9px] uppercase tracking-wider text-muted hidden sm:inline">
+                  {isCompleted
+                    ? "SELESAI"
+                    : isRunning
+                    ? "BERJALAN"
+                    : isCurrentFailed
+                    ? "GAGAL"
+                    : "MENUNGGU"}
+                </span>
+              </div>
+            );
+          })}
         </div>
       </div>
 
-      {/* Stage Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5 pt-2">
-        {STAGES.map((s, idx) => {
-          const st = getStageStatus(s.id, idx);
-          return (
-            <div
-              key={s.id}
-              className={`p-2.5 rounded-xl border text-xs flex flex-col gap-1.5 transition-all ${
-                st === "active"
-                  ? "bg-orange-500/10 border-orange-500/40 text-orange-200"
-                  : st === "completed"
-                    ? "bg-zinc-950 border-zinc-800 text-zinc-300"
-                    : st === "failed"
-                      ? "bg-red-950/20 border-red-800 text-red-300"
-                      : "bg-zinc-950/40 border-zinc-900 text-zinc-600"
+      {/* Giant Percentage & Stage Status Block */}
+      <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] items-center gap-6 p-6 border border-line bg-card/60">
+        <div className="font-extrabold text-7xl md:text-8xl text-action leading-none tabular-nums min-w-[2.2ch]">
+          {pct}
+        </div>
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs uppercase font-mono tracking-wider text-muted">
+              TAHAP {activeIdx + 1} DARI {STAGES.length}
+            </span>
+            <span className="text-muted">•</span>
+            <span
+              className={`text-xs uppercase font-bold px-2 py-0.5 border ${
+                isFailed
+                  ? "border-err/40 text-err bg-err/10"
+                  : isDone
+                  ? "border-green-500/40 text-green-400 bg-green-500/10"
+                  : isReview
+                  ? "border-action/40 text-action bg-action/10"
+                  : "border-line text-copy bg-bg"
               }`}
             >
-              <div className="flex items-center justify-between">
-                <span className="font-semibold text-[11px] truncate">
-                  {s.label}
-                </span>
-                {st === "active" && (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-orange-500" />
-                )}
-                {st === "completed" && (
-                  <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
-                )}
-                {st === "failed" && (
-                  <XCircle className="w-3.5 h-3.5 text-red-500" />
-                )}
-              </div>
-            </div>
-          );
-        })}
+              {job.status.replace("_", " ")}
+            </span>
+          </div>
+
+          <h3 className="text-xl md:text-2xl font-bold text-copy">
+            {isFailed
+              ? "Eksekusi Render Mengalami Hambatan"
+              : isDone
+              ? "Semua Klip Selesai Dirender!"
+              : currentStageInfo.label}
+          </h3>
+
+          <p className="text-muted text-xs md:text-sm">
+            {isFailed
+              ? job.error_message || "Terjadi kesalahan saat memproses tahap ini."
+              : currentStageInfo.desc}
+          </p>
+
+          {/* Progress bar */}
+          <div className="w-full bg-bg h-2 border border-line mt-2">
+            <div
+              className={`h-full transition-all duration-300 ${
+                isFailed ? "bg-err" : isDone ? "bg-green-500" : "bg-action"
+              }`}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+        </div>
       </div>
 
+      {/* Error Callout */}
       {isFailed && (
-        <div className="flex items-start gap-3 p-3.5 bg-red-950/30 border border-red-850 rounded-xl text-red-300 text-xs">
-          <AlertCircle className="w-4 h-4 shrink-0 text-red-400 mt-0.5" />
-          <div>
-            <div className="font-bold">Error: {job.error_code || "UNKNOWN_ERROR"}</div>
-            <div className="mt-0.5 text-red-200">{job.error_message}</div>
+        <div className="flex items-start gap-3 p-4 border border-err bg-err/10 text-err text-xs">
+          <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <div className="font-extrabold uppercase tracking-wider">
+              ERROR: {job.error_code || "RENDER_FAILED"}
+            </div>
+            <div className="mt-1 text-copy font-mono text-[11px]">
+              {job.error_message}
+            </div>
+            {onRetry && (
+              <button
+                onClick={onRetry}
+                className="mt-3 btn-action px-4 py-1.5 text-xs font-bold inline-flex items-center gap-1.5"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>ULANGI RENDER SEKARANG</span>
+              </button>
+            )}
           </div>
         </div>
       )}

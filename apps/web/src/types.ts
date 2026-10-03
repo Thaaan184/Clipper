@@ -9,9 +9,13 @@ export interface JobParams {
 export interface Job {
   id: string;
   source_url: string;
+  video_id?: string | null;
+  title?: string | null;
+  duration_s?: number | null;
   genre: string;
   language: string;
   params: JobParams;
+
   status:
     | "created"
     | "validating"

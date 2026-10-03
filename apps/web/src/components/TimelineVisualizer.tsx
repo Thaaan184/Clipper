@@ -66,18 +66,24 @@ export const TimelineVisualizer: React.FC<TimelineVisualizerProps> = ({
   }, [timeline.heatmap, duration]);
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl flex flex-col gap-6">
-      <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+    <div className="marked-frame border border-line bg-surface p-5 shadow-2xl flex flex-col gap-5">
+      <i className="crop-mark crop-tl" />
+      <i className="crop-mark crop-tr" />
+      <i className="crop-mark crop-bl" />
+      <i className="crop-mark crop-br" />
+
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-line pb-3">
         <div className="flex items-center gap-2">
-          <Activity className="w-5 h-5 text-orange-500" />
-          <h3 className="font-bold text-white text-base">
-            Multi-Lane Signal Timeline
+          <Activity className="w-4 h-4 text-action" />
+          <h3 className="font-extrabold text-sm uppercase tracking-wider text-copy">
+            TIMELINE MULTI-LANE SINYAL VOD
           </h3>
         </div>
-        <div className="flex items-center gap-4 text-xs">
-          <div className="flex items-center gap-1.5 text-blue-400">
+        <div className="flex items-center gap-4 text-xs font-mono">
+          <div className="flex items-center gap-1.5 text-sky-400">
             <Music className="w-3.5 h-3.5" />
-            <span>Audio Energy RMS</span>
+            <span>Audio RMS</span>
           </div>
           <div className="flex items-center gap-1.5 text-emerald-400">
             <MessageSquare className="w-3.5 h-3.5" />
@@ -85,39 +91,24 @@ export const TimelineVisualizer: React.FC<TimelineVisualizerProps> = ({
           </div>
           <div className="flex items-center gap-1.5 text-amber-400">
             <Flame className="w-3.5 h-3.5" />
-            <span>Replay Heatmap</span>
+            <span>Heatmap</span>
           </div>
         </div>
       </div>
 
       {/* SVG Multi-Lane Display */}
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3 font-mono">
         {/* Lane 1: Audio Energy */}
         <div className="flex flex-col gap-1">
-          <div className="text-[11px] font-semibold text-zinc-400">
-            Audio RMS Peak & Surge
+          <div className="text-[11px] uppercase tracking-wider text-muted">
+            AUDIO ENERGY RMS & ONSET SURGE
           </div>
-          <div className="w-full h-14 bg-zinc-950 rounded-lg p-1 border border-zinc-800 relative">
-            <svg
-              viewBox="0 0 1000 50"
-              preserveAspectRatio="none"
-              className="w-full h-full"
-            >
+          <div className="w-full h-12 bg-card border border-line p-1 relative">
+            <svg viewBox="0 0 1000 50" preserveAspectRatio="none" className="w-full h-full">
               {audioPath ? (
-                <path
-                  d={audioPath}
-                  fill="none"
-                  stroke="#38bdf8"
-                  strokeWidth="1.5"
-                />
+                <path d={audioPath} fill="none" stroke="#38bdf8" strokeWidth="1.5" />
               ) : (
-                <text
-                  x="500"
-                  y="28"
-                  fill="#71717a"
-                  fontSize="12"
-                  textAnchor="middle"
-                >
+                <text x="500" y="28" fill="#71717a" fontSize="11" textAnchor="middle">
                   No Audio Signal Data
                 </text>
               )}
@@ -127,30 +118,15 @@ export const TimelineVisualizer: React.FC<TimelineVisualizerProps> = ({
 
         {/* Lane 2: Chat Velocity */}
         <div className="flex flex-col gap-1">
-          <div className="text-[11px] font-semibold text-zinc-400">
-            Chat Velocity & Hype Spikes
+          <div className="text-[11px] uppercase tracking-wider text-muted">
+            CHAT VELOCITY & HYPE SPIKES
           </div>
-          <div className="w-full h-14 bg-zinc-950 rounded-lg p-1 border border-zinc-800 relative">
-            <svg
-              viewBox="0 0 1000 50"
-              preserveAspectRatio="none"
-              className="w-full h-full"
-            >
+          <div className="w-full h-12 bg-card border border-line p-1 relative">
+            <svg viewBox="0 0 1000 50" preserveAspectRatio="none" className="w-full h-full">
               {chatPath ? (
-                <path
-                  d={chatPath}
-                  fill="none"
-                  stroke="#34d399"
-                  strokeWidth="1.5"
-                />
+                <path d={chatPath} fill="none" stroke="#34d399" strokeWidth="1.5" />
               ) : (
-                <text
-                  x="500"
-                  y="28"
-                  fill="#71717a"
-                  fontSize="12"
-                  textAnchor="middle"
-                >
+                <text x="500" y="28" fill="#71717a" fontSize="11" textAnchor="middle">
                   Chat Replay Unavailable (VOD Mode)
                 </text>
               )}
@@ -160,30 +136,15 @@ export const TimelineVisualizer: React.FC<TimelineVisualizerProps> = ({
 
         {/* Lane 3: Replay Heatmap */}
         <div className="flex flex-col gap-1">
-          <div className="text-[11px] font-semibold text-zinc-400">
-            YouTube Most-Replayed Heatmap
+          <div className="text-[11px] uppercase tracking-wider text-muted">
+            YOUTUBE MOST-REPLAYED HEATMAP
           </div>
-          <div className="w-full h-14 bg-zinc-950 rounded-lg p-1 border border-zinc-800 relative">
-            <svg
-              viewBox="0 0 1000 50"
-              preserveAspectRatio="none"
-              className="w-full h-full"
-            >
+          <div className="w-full h-12 bg-card border border-line p-1 relative">
+            <svg viewBox="0 0 1000 50" preserveAspectRatio="none" className="w-full h-full">
               {heatmapPath ? (
-                <path
-                  d={heatmapPath}
-                  fill="none"
-                  stroke="#fbbf24"
-                  strokeWidth="1.5"
-                />
+                <path d={heatmapPath} fill="none" stroke="#fbbf24" strokeWidth="1.5" />
               ) : (
-                <text
-                  x="500"
-                  y="28"
-                  fill="#71717a"
-                  fontSize="12"
-                  textAnchor="middle"
-                >
+                <text x="500" y="28" fill="#71717a" fontSize="11" textAnchor="middle">
                   Heatmap Unavailable
                 </text>
               )}
@@ -193,39 +154,40 @@ export const TimelineVisualizer: React.FC<TimelineVisualizerProps> = ({
 
         {/* Candidate Windows Lane */}
         <div className="flex flex-col gap-1 mt-2">
-          <div className="flex justify-between text-[11px] font-semibold text-zinc-400">
-            <span>Proposed Candidate Highlight Windows</span>
-            <span>Durasi: {formatTime(duration)}</span>
+          <div className="flex justify-between text-[11px] uppercase tracking-wider text-muted">
+            <span>PROPOSED CANDIDATE HIGHLIGHT WINDOWS ({candidates.length} Momen)</span>
+            <span>DURASI VOD: {formatTime(duration)}</span>
           </div>
 
-          <div className="w-full h-10 bg-zinc-950 rounded-lg border border-zinc-800 relative overflow-hidden flex items-center">
+          <div className="w-full h-10 bg-card border border-line relative overflow-hidden flex items-center">
             {candidates.map((cand) => {
               const start = cand.user_start_s ?? cand.start_s;
               const end = cand.user_end_s ?? cand.end_s;
               const leftPct = (start / duration) * 100;
-              const widthPct = Math.max(1, ((end - start) / duration) * 100);
+              const widthPct = Math.max(1.5, ((end - start) / duration) * 100);
               const isSelected = cand.id === selectedCandidateId;
 
               const isRejected = cand.status === "rejected";
               const isKept = cand.status === "kept";
 
-              const bgColor = isRejected
-                ? "bg-red-500/30 border-red-500"
+              const borderClass = isRejected
+                ? "border-err bg-err/30"
                 : isKept
-                  ? "bg-green-500/40 border-green-500"
-                  : "bg-orange-500/40 border-orange-500";
+                ? "border-green-500 bg-green-500/40"
+                : "border-action bg-action/30";
 
               return (
                 <button
                   key={cand.id}
+                  type="button"
                   onClick={() => onSelectCandidate(cand.id)}
-                  title={`#${cand.rank} ${cand.title} (${start.toFixed(1)}s - ${end.toFixed(1)}s)`}
+                  title={`#${cand.rank} ${cand.title || "Kandidat"} (${start.toFixed(1)}s - ${end.toFixed(1)}s)`}
                   style={{
                     left: `${leftPct}%`,
                     width: `${widthPct}%`,
                   }}
-                  className={`absolute h-8 rounded border transition-all cursor-pointer flex items-center justify-center text-[10px] font-bold text-white shadow-sm ${bgColor} ${
-                    isSelected ? "ring-2 ring-white scale-105 z-10" : "opacity-80 hover:opacity-100"
+                  className={`absolute h-8 border transition-all cursor-pointer flex items-center justify-center text-[10px] font-extrabold text-copy shadow-sm ${borderClass} ${
+                    isSelected ? "ring-2 ring-copy scale-105 z-10" : "opacity-85 hover:opacity-100"
                   }`}
                 >
                   #{cand.rank}

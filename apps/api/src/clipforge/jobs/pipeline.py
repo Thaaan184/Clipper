@@ -555,7 +555,7 @@ async def stage_render_clips(
 
     # Fetch kept or top candidates from DB
     query = """
-        SELECT id, rank, start_s, end_s, duration_s, title, category
+        SELECT id, rank, COALESCE(user_start_s, start_s), COALESCE(user_end_s, end_s), title, category
         FROM candidates
         WHERE job_id = ? AND status != 'rejected'
         ORDER BY rank ASC, final_score DESC
@@ -564,15 +564,18 @@ async def stage_render_clips(
     candidates_to_render = []
     async with db.execute(query, (job_id, target_count)) as cur:
         async for r in cur:
+            st = float(r[2])
+            en = float(r[3])
+            dur = max(1.0, round(en - st, 3))
             candidates_to_render.append(
                 {
                     "id": r[0],
                     "rank": r[1],
-                    "start_s": float(r[2]),
-                    "end_s": float(r[3]),
-                    "duration_s": float(r[4]),
-                    "title": r[5],
-                    "category": r[6],
+                    "start_s": st,
+                    "end_s": en,
+                    "duration_s": dur,
+                    "title": r[4],
+                    "category": r[5],
                 }
             )
 

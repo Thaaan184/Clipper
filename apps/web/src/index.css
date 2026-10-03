@@ -1,7 +1,137 @@
+@import url("https://fonts.googleapis.com/css2?family=Fira+Sans:wght@400;500;600;700;800&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
+  --bg: #0A0A0A;
+  --sf: #141414;
+  --cd: #1C1C1C;
+  --bd: #2A2A2A;
+  --or: #FF6A00;
+  --orh: #FF8533;
+  --tx: #F5F5F5;
+  --mt: #9A9A9A;
+  --err: #E5484D;
   color-scheme: dark;
+}
+
+* {
+  border-radius: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--tx);
+  font-family: 'Fira Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  overflow-x: hidden;
+}
+
+/* Crop marks corner styling */
+.marked-frame {
+  position: relative;
+}
+
+.crop-mark {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-color: var(--mt);
+  transition: border-color 0.15s ease-in-out;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.crop-tl {
+  top: -1px;
+  left: -1px;
+  border-top-width: 2px;
+  border-left-width: 2px;
+}
+
+.crop-tr {
+  top: -1px;
+  right: -1px;
+  border-top-width: 2px;
+  border-right-width: 2px;
+}
+
+.crop-bl {
+  bottom: -1px;
+  left: -1px;
+  border-bottom-width: 2px;
+  border-left-width: 2px;
+}
+
+.crop-br {
+  bottom: -1px;
+  right: -1px;
+  border-bottom-width: 2px;
+  border-right-width: 2px;
+}
+
+.marked-frame:hover .crop-mark,
+.marked-frame.is-selected .crop-mark {
+  border-color: var(--or);
+}
+
+/* Film Perforation edges */
+.film-perfs {
+  position: relative;
+  border-left: 7px dashed var(--bd);
+  border-right: 7px dashed var(--bd);
+}
+
+/* Hard offset action button */
+.btn-action {
+  background-color: var(--or);
+  color: #0A0A0A;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, background-color 0.12s ease;
+}
+
+.btn-action:hover:not(:disabled) {
+  background-color: var(--orh);
+  transform: translate(-3px, -3px);
+  box-shadow: 4px 4px 0 #7A3300;
+}
+
+.btn-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Ghost button */
+.btn-ghost {
+  border: 1px solid var(--bd);
+  color: var(--tx);
+  transition: border-color 0.12s ease, color 0.12s ease;
+}
+
+.btn-ghost:hover:not(:disabled) {
+  border-color: var(--or);
+  color: var(--or);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--bd);
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--mt);
 }

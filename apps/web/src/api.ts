@@ -41,6 +41,25 @@ export async function getJob(jobId: string): Promise<Job> {
   return res.json();
 }
 
+export async function listJobs(limit = 10): Promise<Job[]> {
+  const res = await fetch(`${API_BASE}/api/jobs?limit=${limit}`);
+  if (!res.ok) {
+    throw new Error("Failed to list jobs");
+  }
+  return res.json();
+}
+
+export async function getJobClips(
+  jobId: string
+): Promise<{ clips: Clip[]; total: number }> {
+  const res = await fetch(`${API_BASE}/api/jobs/${jobId}/clips`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch clips for job ${jobId}`);
+  }
+  return res.json();
+}
+
+
 export async function cancelJob(jobId: string): Promise<void> {
   const res = await fetch(`${API_BASE}/api/jobs/${jobId}/cancel`, {
     method: "POST",

@@ -102,30 +102,36 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
   };
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 shadow-xl flex flex-col gap-6">
-      <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+    <div className="marked-frame border border-line bg-surface p-6 shadow-2xl flex flex-col gap-6">
+      <i className="crop-mark crop-tl" />
+      <i className="crop-mark crop-tr" />
+      <i className="crop-mark crop-bl" />
+      <i className="crop-mark crop-br" />
+
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-line pb-3">
         <div className="flex items-center gap-2">
-          <FileEdit className="w-5 h-5 text-orange-500" />
-          <h3 className="font-bold text-white text-base">
-            Kinetic Subtitle & Style Editor
+          <FileEdit className="w-4 h-4 text-action" />
+          <h3 className="font-extrabold text-copy text-base uppercase tracking-wider">
+            STUDIO EDITOR SUBTITLE & PRESET LIBASS
           </h3>
         </div>
-        <span className="text-xs px-2.5 py-0.5 rounded-full font-mono bg-zinc-800 text-zinc-300">
-          Rev #{initialTrack.revision}
+        <span className="text-xs px-2.5 py-0.5 border border-line bg-card font-mono text-muted">
+          REVISI #{initialTrack.revision}
         </span>
       </div>
 
-      {/* Settings Bar */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {/* Settings Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs font-mono">
         <div>
-          <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5 flex items-center gap-1.5">
-            <Palette className="w-3.5 h-3.5 text-orange-400" />
+          <label className="block uppercase tracking-wider text-muted mb-1.5 flex items-center gap-1.5 font-bold">
+            <Palette className="w-3.5 h-3.5 text-action" />
             Preset Style ASS
           </label>
           <select
             value={stylePreset}
             onChange={(e) => setStylePreset(e.target.value)}
-            className="w-full px-3 py-2 bg-zinc-950 border border-zinc-700 rounded-lg text-white text-xs focus:outline-none focus:border-orange-500"
+            className="w-full px-3 py-2 bg-card border border-line text-copy text-xs focus:outline-none focus:border-action"
           >
             <option value="classic_white">Classic White</option>
             <option value="hormozi_bold">Hormozi Bold (Kuning)</option>
@@ -137,13 +143,13 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
         </div>
 
         <div>
-          <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
+          <label className="block uppercase tracking-wider text-muted mb-1.5 font-bold">
             Mode Reframe
           </label>
           <select
             value={reframeMode}
             onChange={(e) => setReframeMode(e.target.value)}
-            className="w-full px-3 py-2 bg-zinc-950 border border-zinc-700 rounded-lg text-white text-xs focus:outline-none focus:border-orange-500"
+            className="w-full px-3 py-2 bg-card border border-line text-copy text-xs focus:outline-none focus:border-action"
           >
             <option value="blur">Blur Pillarbox (Lanczos)</option>
             <option value="center">Center Crop</option>
@@ -152,7 +158,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
         </div>
 
         <div>
-          <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-400 mb-1.5">
+          <label className="block uppercase tracking-wider text-muted mb-1.5 font-bold">
             Waktu Preview (detik)
           </label>
           <input
@@ -161,7 +167,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
             min="0"
             value={previewTime}
             onChange={(e) => setPreviewTime(parseFloat(e.target.value) || 0)}
-            className="w-full px-3 py-2 bg-zinc-950 border border-zinc-700 rounded-lg text-white text-xs font-mono"
+            className="w-full px-3 py-2 bg-card border border-line text-copy text-xs font-mono focus:border-action focus:outline-none"
           />
         </div>
       </div>
@@ -170,30 +176,30 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Word Grid */}
         <div className="flex flex-col gap-2">
-          <div className="flex justify-between items-center text-xs text-zinc-400">
-            <span>Daftar Kata ASR ({words.length} kata)</span>
-            <span>Ubah teks langsung di bawah</span>
+          <div className="flex justify-between items-center text-xs text-muted font-mono">
+            <span>DAFTAR KATA ASR ({words.length} kata)</span>
+            <span>Edit teks per kata</span>
           </div>
 
-          <div className="h-96 overflow-y-auto bg-zinc-950 p-3 rounded-xl border border-zinc-800 flex flex-col gap-2 pr-1">
+          <div className="h-96 overflow-y-auto bg-card p-3 border border-line flex flex-col gap-2 pr-1 font-mono">
             {words.length === 0 ? (
-              <div className="text-zinc-600 text-xs text-center py-16">
-                Tidak ada transkrip kata untuk klip ini (gameplay highlight tanpa percakapan).
+              <div className="text-muted text-xs text-center py-16">
+                Tidak ada transkrip kata untuk klip ini (gameplay highlight tanpa audio bicara).
               </div>
             ) : (
               words.map((w, idx) => (
                 <div
                   key={idx}
-                  className="flex items-center gap-2 p-2 bg-zinc-900/70 border border-zinc-800/80 rounded-lg text-xs"
+                  className="flex items-center gap-2 p-2 bg-surface border border-line text-xs"
                 >
-                  <span className="font-mono text-[10px] text-zinc-500 w-16 shrink-0">
+                  <span className="font-mono text-[10px] text-muted w-20 shrink-0">
                     {w.start_s.toFixed(2)}s - {w.end_s.toFixed(2)}s
                   </span>
                   <input
                     type="text"
                     value={w.text}
                     onChange={(e) => handleWordChange(idx, e.target.value)}
-                    className="flex-1 px-2.5 py-1 bg-zinc-950 border border-zinc-700 rounded text-white text-xs font-semibold focus:outline-none focus:border-orange-500"
+                    className="flex-1 px-2.5 py-1 bg-card border border-line text-copy text-xs font-semibold focus:outline-none focus:border-action"
                   />
                 </div>
               ))
@@ -203,23 +209,23 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
 
         {/* WYSIWYG Frame Preview */}
         <div className="flex flex-col gap-2">
-          <div className="flex justify-between items-center text-xs text-zinc-400">
-            <span>WYSIWYG Libass Preview Frame</span>
+          <div className="flex justify-between items-center text-xs text-muted font-mono">
+            <span>WYSIWYG LIBASS PREVIEW FRAME</span>
             <button
               onClick={handlePreviewFrame}
               disabled={isPreviewing}
-              className="flex items-center gap-1.5 px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold rounded-md transition-colors"
+              className="btn-ghost flex items-center gap-1.5 px-3 py-1 text-xs font-bold text-copy"
             >
               {isPreviewing ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
               ) : (
-                <Eye className="w-3.5 h-3.5" />
+                <Eye className="w-3.5 h-3.5 text-action" />
               )}
-              Render Frame ({previewTime.toFixed(1)}s)
+              <span>RENDER FRAME ({previewTime.toFixed(1)}s)</span>
             </button>
           </div>
 
-          <div className="h-96 bg-zinc-950 rounded-xl border border-zinc-800 flex items-center justify-center overflow-hidden relative shadow-inner">
+          <div className="h-96 bg-card border border-line flex items-center justify-center overflow-hidden relative">
             {previewBlobUrl ? (
               <img
                 src={previewBlobUrl}
@@ -227,11 +233,11 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
                 className="h-full w-auto object-contain"
               />
             ) : (
-              <div className="flex flex-col items-center gap-2 text-zinc-600 text-xs p-6 text-center">
-                <Sparkles className="w-8 h-8 text-zinc-700" />
+              <div className="flex flex-col items-center gap-2 text-muted text-xs p-6 text-center">
+                <Sparkles className="w-8 h-8 text-action opacity-60" />
                 <span>
-                  Klik &ldquo;Render Frame&rdquo; untuk melihat pratinjau visual
-                  subtitles dengan font dan efek warna nyata.
+                  Klik &ldquo;RENDER FRAME&rdquo; untuk melihat pratinjau visual
+                  subtitles dengan font OFL dan efek warna asli.
                 </span>
               </div>
             )}
@@ -240,32 +246,32 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
       </div>
 
       {/* Bottom Action Buttons */}
-      <div className="flex items-center justify-between border-t border-zinc-800 pt-4">
+      <div className="flex items-center justify-between border-t border-line pt-4">
         <div className="flex items-center gap-3">
           <button
             onClick={handleSaveSubtitles}
             disabled={isSaving}
-            className="flex items-center gap-2 px-5 py-2.5 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white font-bold text-xs rounded-lg transition-colors shadow-md"
+            className="btn-action flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-bg"
           >
             {isSaving ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : saveSuccess ? (
-              <Check className="w-4 h-4 text-green-300" />
+              <Check className="w-4 h-4" />
             ) : null}
-            {saveSuccess ? "Tersimpan!" : "Simpan Revisi Subtitle"}
+            <span>{saveSuccess ? "TERSIMPAN!" : "SIMPAN REVISI SUBTITLE"}</span>
           </button>
 
           <button
             onClick={handleRerender}
             disabled={isRerendering}
-            className="flex items-center gap-2 px-5 py-2.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-200 font-bold text-xs rounded-lg transition-colors border border-zinc-700"
+            className="btn-ghost flex items-center gap-2 px-5 py-2.5 text-xs font-bold text-copy"
           >
             {isRerendering ? (
-              <Loader2 className="w-4 h-4 animate-spin text-orange-400" />
+              <Loader2 className="w-4 h-4 animate-spin text-action" />
             ) : (
-              <RefreshCw className="w-4 h-4 text-orange-400" />
+              <RefreshCw className="w-4 h-4 text-action" />
             )}
-            Re-render Video Final
+            <span>RE-RENDER VIDEO FINAL</span>
           </button>
         </div>
       </div>
