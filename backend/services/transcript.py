@@ -74,6 +74,7 @@ async def get_transcript_from_ytdlp(url: str, lang: str = "id") -> list[dict]:
                 "--sub-lang", f"{lang},en",
                 "--skip-download",
                 "--sub-format", "vtt",
+                "--extractor-args", "youtube:player_client=android,web",
                 "-o", out_tmpl,
                 url,
             ]

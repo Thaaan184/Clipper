@@ -23,6 +23,7 @@ async def download_audio(url: str, video_id: str) -> Path | None:
         "yt-dlp",
         "-f", "bestaudio[ext=m4a]/bestaudio",
         "-o", str(output_path),
+        "--extractor-args", "youtube:player_client=android,web",
         "--no-playlist",
         "--quiet",
         "--no-warnings",
