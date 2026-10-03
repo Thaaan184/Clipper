@@ -1,0 +1,46 @@
+# Environment
+.env
+*.env
+
+# Data & media files (never commit)
+data/
+*.db
+*.mp4
+*.mp3
+*.wav
+*.m4a
+*.ass
+*.srt
+*.webm
+*.mkv
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+.pytest_cache/
+
+# Node / Frontend
+node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.cache/
+*.tsbuildinfo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
