@@ -12,6 +12,7 @@ from typing import Any
 
 import aiosqlite
 import yt_dlp
+from yt_dlp.utils import download_range_func
 
 from config import settings
 from services.reframe import reframe, loudnorm
@@ -39,10 +40,10 @@ async def _update_job(db_path: str, job_id: str, **kwargs):
 def _download_clip_range(url: str, start: float, end: float, output_path: Path) -> Path | None:
     """
     Download exact clip range with zero freezing and perfect A/V sync.
-    Method 1: Direct stream extraction via yt-dlp + frame-accurate seek in FFmpeg.
-    Method 2: Fallback to yt-dlp download_ranges with force_keyframes_at_cuts=True.
+    Uses yt-dlp download_ranges with force_keyframes_at_cuts=True and explicit MP4/H.264
+    format to ensure exact keyframe cuts, zero negative PTS, and identical video/audio start.
     """
-    target_mp4 = output_path.with_suffix(".mp4")
+    target_path = output_path.with_suffix(".mp4")
 
     # Clean up any stale partial files
     for stale in output_path.parent.glob(f"{output_path.stem}.*"):
@@ -51,82 +52,22 @@ def _download_clip_range(url: str, start: float, end: float, output_path: Path) 
         except Exception:
             pass
 
-    # Method 1: Direct stream extraction + FFmpeg accurate seek
+    ydl_opts = {
+        "format": "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+        "outtmpl": str(target_path),
+        "quiet": True,
+        "no_warnings": True,
+        "no_playlist": True,
+        "download_ranges": download_range_func(None, [(start, end)]),  # type: ignore
+        "force_keyframes_at_cuts": True,
+        "remote_components": ["ejs:github"],
+    }
     try:
-        ydl_opts = {
-            "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
-            "quiet": True,
-            "no_warnings": True,
-            "no_playlist": True,
-            "remote_components": ["ejs:github"],
-        }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-
-        req = list(info.get("requested_formats") or [])
-        if len(req) >= 2:
-            v_url = req[0].get("url")
-            a_url = req[1].get("url")
-            v_hdr = req[0].get("http_headers", {})
-            a_hdr = req[1].get("http_headers", {})
-        else:
-            v_url = info.get("url")
-            a_url = info.get("url")
-            v_hdr = info.get("http_headers", {})
-            a_hdr = info.get("http_headers", {})
-
-        if v_url:
-            def _fmt_hdr(h: dict) -> str:
-                return "".join(f"{k}: {v}\r\n" for k, v in h.items())
-
-            v_h_str = _fmt_hdr(v_hdr)
-            a_h_str = _fmt_hdr(a_hdr)
-
-            cmd = ["ffmpeg", "-y"]
-            if v_h_str:
-                cmd.extend(["-headers", v_h_str])
-            cmd.extend(["-ss", f"{start:.3f}", "-to", f"{end:.3f}", "-i", v_url])
-
-            if a_url and a_url != v_url:
-                if a_h_str:
-                    cmd.extend(["-headers", a_h_str])
-                cmd.extend(["-ss", f"{start:.3f}", "-to", f"{end:.3f}", "-i", a_url])
-                cmd.extend(["-map", "0:v:0", "-map", "1:a:0"])
-            else:
-                cmd.extend(["-map", "0:v:0", "-map", "0:a:0?"])
-
-            cmd.extend([
-                "-c:v", "libx264", "-preset", "veryfast", "-crf", "21",
-                "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
-                "-avoid_negative_ts", "make_zero",
-                "-movflags", "+faststart",
-                str(target_mp4)
-            ])
-
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-            if res.returncode == 0 and target_mp4.exists() and target_mp4.stat().st_size > 10000:
-                logger.info("Direct FFmpeg stream cut successful: %s (%.1f MB)", target_mp4.name, target_mp4.stat().st_size / 1e6)
-                return target_mp4
-            else:
-                logger.warning("Direct stream FFmpeg failed (rc=%d), falling back to yt-dlp", res.returncode)
-    except Exception as e:
-        logger.warning("Direct stream extraction exception: %s, falling back to yt-dlp", e)
-
-    # Method 2: Fallback via yt-dlp download_ranges with force_keyframes_at_cuts=True
-    try:
-        base_tmpl = str(output_path.with_suffix(""))
-        ydl_opts_fallback = {
-            "format": "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-            "outtmpl": base_tmpl + ".%(ext)s",
-            "quiet": True,
-            "no_warnings": True,
-            "no_playlist": True,
-            "download_ranges": yt_dlp.utils.download_range_func([], [[start, end]]),
-            "force_keyframes_at_cuts": True,
-            "remote_components": ["ejs:github"],
-        }
-        with yt_dlp.YoutubeDL(ydl_opts_fallback) as ydl:
             ydl.download([url])
+
+        if target_path.exists() and target_path.stat().st_size > 10000:
+            return target_path
 
         candidates = list(output_path.parent.glob(f"{output_path.stem}.*"))
         valid = [
@@ -140,7 +81,7 @@ def _download_clip_range(url: str, start: float, end: float, output_path: Path) 
             return valid[0]
         return None
     except Exception as e:
-        logger.error("Fallback yt-dlp clip download failed: %s", e)
+        logger.error("yt-dlp clip download failed: %s", e)
         return None
 
 
