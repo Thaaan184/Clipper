@@ -5,6 +5,7 @@ import json
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
+from typing import Any
 from urllib.parse import urlparse
 
 import aiosqlite
@@ -18,7 +19,15 @@ from clipforge.db.connection import get_db
 from clipforge.jobs.engine import engine
 from clipforge.jobs.events import broadcaster
 from clipforge.jobs.models import JobCreateRequest, JobEvent, JobResponse, JobStatus, StageName
+from clipforge.jobs.pipeline import (
+    stage_analyze_signals,
+    stage_fetch_signals,
+    stage_fuse_candidates,
+    stage_validate,
+)
 from clipforge.jobs.state_machine import transition_job_status
+from clipforge.timeline.models import CandidatesResponse, TimelineResponse
+from clipforge.timeline.service import get_candidates_for_job, get_timeline_for_job
 
 router = APIRouter(prefix="/api/jobs", tags=["Jobs"])
 
@@ -32,49 +41,47 @@ def _validate_source_url(url: str) -> None:
 
 
 async def _execute_job_pipeline(job_id: str) -> None:
-    """Mock pipeline runner for Phase 2 scaffold validation."""
+    """Execute pipeline stages: Validate -> Fetch Signals -> Analyze Signals -> Fuse Candidates."""
     from clipforge.db.connection import get_db_connection
 
     async with get_db_connection() as db:
         try:
-            # Mock Stage 1: Validate
-            async def _stage_validate(
-                d: aiosqlite.Connection, j_id: str, inp: dict[str, object]
-            ) -> tuple[list[str], dict[str, object]]:
-                await asyncio.sleep(0.05)
-                return (["meta.json"], {"valid": True})
+            # Query initial job params
+            async with db.execute(
+                "SELECT source_url, genre, language FROM jobs WHERE id = ?", (job_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if not row:
+                    return
+                source_url, genre, language = row[0], row[1], row[2]
 
-            # Mock Stage 2: Fetch Signals
-            async def _stage_fetch_signals(
-                d: aiosqlite.Connection, j_id: str, inp: dict[str, object]
-            ) -> tuple[list[str], dict[str, object]]:
-                await asyncio.sleep(0.05)
-                return (["signals/audio.npz"], {"audio_extracted": True})
+            stage_input = {
+                "job_id": job_id,
+                "source_url": source_url,
+                "genre": genre,
+                "language": language,
+            }
 
-            # Mock Stage 3: Analyze Signals
-            async def _stage_analyze_signals(
-                d: aiosqlite.Connection, j_id: str, inp: dict[str, object]
-            ) -> tuple[list[str], dict[str, object]]:
-                await asyncio.sleep(0.05)
-                return (["signals/fused.npz"], {"peaks_found": 5})
-
-            stages: list[tuple[StageName, object, float]] = [
-                (StageName.VALIDATE, _stage_validate, 0.2),
-                (StageName.FETCH_SIGNALS, _stage_fetch_signals, 0.5),
-                (StageName.ANALYZE_SIGNALS, _stage_analyze_signals, 0.8),
+            stages: list[tuple[StageName, Any, float]] = [
+                (StageName.VALIDATE, stage_validate, 0.20),
+                (StageName.FETCH_SIGNALS, stage_fetch_signals, 0.50),
+                (StageName.ANALYZE_SIGNALS, stage_analyze_signals, 0.75),
+                (StageName.FUSE_CANDIDATES, stage_fuse_candidates, 0.95),
             ]
 
             for stage_name, stage_fn, prog in stages:
                 if engine.is_cancelled(job_id):
                     break
-                await engine.run_stage(
+                success = await engine.run_stage(
                     db=db,
                     job_id=job_id,
                     stage=stage_name,
-                    stage_fn=stage_fn,  # type: ignore
-                    stage_input={"job_id": job_id, "mock": True},
+                    stage_fn=stage_fn,
+                    stage_input=stage_input,
                     progress=prog,
                 )
+                if not success and not engine.is_cancelled(job_id):
+                    raise RuntimeError(f"Stage {stage_name.value} execution failed")
 
             if engine.is_cancelled(job_id):
                 await transition_job_status(db, job_id, JobStatus.CANCELLED)
@@ -239,3 +246,21 @@ async def stream_job_events(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.get("/{job_id}/timeline", response_model=TimelineResponse)
+async def get_job_timeline(
+    job_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> TimelineResponse:
+    """Retrieve multi-modal signal curves and candidate windows for a job."""
+    return await get_timeline_for_job(job_id=job_id, db=db, data_dir=settings.data_dir)
+
+
+@router.get("/{job_id}/candidates", response_model=CandidatesResponse)
+async def get_job_candidates(
+    job_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> CandidatesResponse:
+    """Retrieve proposed candidate windows and signal evidence for review."""
+    return await get_candidates_for_job(job_id=job_id, db=db)

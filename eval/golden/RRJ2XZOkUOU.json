@@ -5,6 +5,25 @@
   "genre": "gaming",
   "language": "id",
   "has_chat_replay": true,
-  "highlights": [],
+  "highlights": [
+    {
+      "start_s": 6503.0,
+      "end_s": null,
+      "label": "positive",
+      "rating": 3,
+      "game": "Valorant",
+      "description": "A funny gameplay moment where the player repeatedly attempts to hit Sage but fails to kill her.",
+      "note": "Funny Aim Fail (End: TBD)"
+    },
+    {
+      "start_s": 6576.0,
+      "end_s": null,
+      "label": "positive",
+      "rating": 3,
+      "game": "Valorant",
+      "description": "The player holds an angle and gets multiple kills.",
+      "note": "Angle Hold / Multiple Kills (End: TBD)"
+    }
+  ],
   "negatives": []
 }

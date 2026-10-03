@@ -1,0 +1,32 @@
+name: "gaming"
+description: "Optimized for gaming streams, combat highlights, clutched rounds, and loud reactions"
+weights:
+  loud_surge: 0.18
+  onset_density: 0.14
+  nonspeech_loud: 0.10
+  hf_ratio: 0.05
+  chat_rate: 0.18
+  chat_hype: 0.09
+  clip_intent: 0.03
+  heatmap: 0.13
+  visual_motion: 0.10
+
+agreement:
+  min_modalities: 3
+  threshold: 0.6
+  bonus: 0.10
+  window_s: 5.0
+
+candidate_generation:
+  sigma_s: 2.0
+  min_gap_s: 20.0
+  prominence: 0.15
+  abs_floor: 0.30
+  alpha: 0.50
+  pre_roll_s: 8.0
+  post_roll_s: 8.0
+  min_duration_s: 15.0
+  max_duration_s: 60.0
+  target_duration_s: 35.0
+  nms_iou_threshold: 0.30
+  max_candidates: 30

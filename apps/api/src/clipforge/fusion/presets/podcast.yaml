@@ -1,0 +1,32 @@
+name: "podcast"
+description: "Optimized for conversational podcasts, funny banter, and debate moments"
+weights:
+  loud_surge: 0.25
+  onset_density: 0.05
+  nonspeech_loud: 0.00
+  hf_ratio: 0.05
+  chat_rate: 0.25
+  chat_hype: 0.20
+  clip_intent: 0.10
+  heatmap: 0.10
+  visual_motion: 0.00
+
+agreement:
+  min_modalities: 2
+  threshold: 0.6
+  bonus: 0.10
+  window_s: 5.0
+
+candidate_generation:
+  sigma_s: 3.0
+  min_gap_s: 30.0
+  prominence: 0.12
+  abs_floor: 0.25
+  alpha: 0.45
+  pre_roll_s: 5.0
+  post_roll_s: 5.0
+  min_duration_s: 20.0
+  max_duration_s: 90.0
+  target_duration_s: 45.0
+  nms_iou_threshold: 0.25
+  max_candidates: 30

@@ -5,6 +5,25 @@
   "genre": "gaming",
   "language": "id",
   "has_chat_replay": true,
-  "highlights": [],
+  "highlights": [
+    {
+      "start_s": 5340.0,
+      "end_s": 5384.0,
+      "label": "positive",
+      "rating": 3,
+      "game": "Apex Legends",
+      "description": "The player starts fighting an enemy squad and continues the engagement until the enemy squad is completely wiped.",
+      "note": "Squad Wipe"
+    },
+    {
+      "start_s": 5780.0,
+      "end_s": 5802.0,
+      "label": "positive",
+      "rating": 3,
+      "game": "Apex Legends",
+      "description": "The player fights and wipes multiple enemy teams, then continues chasing the remaining enemy.",
+      "note": "Multi-Team Fight / Chase"
+    }
+  ],
   "negatives": []
 }

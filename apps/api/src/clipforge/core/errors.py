@@ -37,6 +37,36 @@ class InvalidUrlError(ClipForgeError):
     title = "Invalid Media URL"
 
 
+class ValidationError(ClipForgeError):
+    status_code = 400
+    code = "VALIDATION_ERROR"
+    title = "Validation Error"
+
+
+class LiveInProgressError(ClipForgeError):
+    status_code = 400
+    code = "LIVE_IN_PROGRESS"
+    title = "Livestream In Progress"
+
+
+class VideoUnavailableError(ClipForgeError):
+    status_code = 404
+    code = "VIDEO_UNAVAILABLE"
+    title = "Video Unavailable"
+
+
+class RateLimitedError(ClipForgeError):
+    status_code = 429
+    code = "RATE_LIMITED"
+    title = "Rate Limited by Upstream Provider"
+
+
+class DiskSpaceError(ClipForgeError):
+    status_code = 507
+    code = "INSUFFICIENT_STORAGE"
+    title = "Insufficient Disk Space"
+
+
 class HostNotAllowedError(ClipForgeError):
     status_code = 403
     code = "HOST_NOT_ALLOWED"

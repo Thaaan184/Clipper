@@ -1,5 +1,6 @@
 import asyncio
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -46,29 +47,40 @@ async def test_invalid_url_rejected():
 
 @pytest.mark.asyncio
 async def test_job_lifecycle_to_review():
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test"
-    ) as client:
-        res = await client.post(
-            "/api/jobs", json={"source_url": "https://www.youtube.com/watch?v=cLhVLsius9w"}
-        )
-        assert res.status_code == 202
-        job_data = res.json()
-        job_id = job_data["id"]
-        assert job_data["status"] == "queued"
+    with (
+        patch("clipforge.api.routes.jobs.stage_validate", new_callable=AsyncMock) as m_val,
+        patch("clipforge.api.routes.jobs.stage_fetch_signals", new_callable=AsyncMock) as m_fetch,
+        patch("clipforge.api.routes.jobs.stage_analyze_signals", new_callable=AsyncMock) as m_ana,
+        patch("clipforge.api.routes.jobs.stage_fuse_candidates", new_callable=AsyncMock) as m_fuse,
+    ):
+        m_val.return_value = (["meta.json"], {"valid": True})
+        m_fetch.return_value = (["audio.m4a"], {"downloaded": True})
+        m_ana.return_value = (["audio_features.json"], {"extracted": True})
+        m_fuse.return_value = (["timeline.json"], {"candidates": 5})
 
-        # Wait for mock stages to progress
-        for _ in range(30):
-            await asyncio.sleep(0.05)
-            status_res = await client.get(f"/api/jobs/{job_id}")
-            current = status_res.json()["status"]
-            if current in ["awaiting_review", "failed"]:
-                break
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            res = await client.post(
+                "/api/jobs", json={"source_url": "https://www.youtube.com/watch?v=cLhVLsius9w"}
+            )
+            assert res.status_code == 202
+            job_data = res.json()
+            job_id = job_data["id"]
+            assert job_data["status"] == "queued"
 
-        final_res = await client.get(f"/api/jobs/{job_id}")
-        assert final_res.status_code == 200
-        assert final_res.json()["status"] == "awaiting_review"
-        assert final_res.json()["progress"] == 1.0
+            # Wait for stages to progress
+            for _ in range(50):
+                await asyncio.sleep(0.05)
+                status_res = await client.get(f"/api/jobs/{job_id}")
+                current = status_res.json()["status"]
+                if current in ["awaiting_review", "failed"]:
+                    break
+
+            final_res = await client.get(f"/api/jobs/{job_id}")
+            assert final_res.status_code == 200
+            assert final_res.json()["status"] == "awaiting_review"
+            assert final_res.json()["progress"] == 1.0
 
 
 @pytest.mark.asyncio
