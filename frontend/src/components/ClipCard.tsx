@@ -1,4 +1,5 @@
-import React, { useState } from "react"
+import React, { useState, useEffect } from "react"
+import QRCode from "qrcode"
 import MarkedFrame from "./MarkedFrame"
 import SubtitleEditorModal from "./SubtitleEditorModal"
 import { downloadClipUrl, previewClipUrl, exportClipSubtitlesUrl, retryClip } from "@/lib/api"
@@ -31,6 +32,7 @@ export default function ClipCard({ clip, onToast, onRetry }: ClipCardProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [isEditingSubs, setIsEditingSubs] = useState(false)
   const [showQR, setShowQR] = useState(false)
+  const [qrDataUrl, setQrDataUrl] = useState("")
   const [editTitle, setEditTitle] = useState(clip.hook_title)
   const [editStart, setEditStart] = useState(clip.start_time)
   const [editEnd, setEditEnd] = useState(clip.end_time)
@@ -38,6 +40,30 @@ export default function ClipCard({ clip, onToast, onRetry }: ClipCardProps) {
   const [editLang, setEditLang] = useState(clip.subtitle_lang || "id")
   const [editStyle, setEditStyle] = useState("popin")
   const [saving, setSaving] = useState(false)
+
+  // Escape key handler for open modals
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (showQR) setShowQR(false)
+        if (isEditing) setIsEditing(false)
+      }
+    }
+    if (showQR || isEditing) {
+      window.addEventListener("keydown", handleKeyDown)
+      return () => window.removeEventListener("keydown", handleKeyDown)
+    }
+  }, [showQR, isEditing])
+
+  // Generate QR code locally without third-party requests
+  useEffect(() => {
+    if (showQR) {
+      const url = window.location.origin + previewClipUrl(clip.id)
+      QRCode.toDataURL(url, { width: 220, margin: 2, color: { dark: "#000000", light: "#ffffff" } })
+        .then(setQrDataUrl)
+        .catch(() => setQrDataUrl(""))
+    }
+  }, [showQR, clip.id])
 
   const isFail = clip.status === "error"
   const isDone = clip.status === "done"
@@ -615,14 +641,16 @@ export default function ClipCard({ clip, onToast, onRetry }: ClipCardProps) {
             <p style={{ fontSize: 12, color: "#9A9A9A", margin: 0, lineHeight: 1.4 }}>
               Scan QR code ini pakai kamera HP kamu untuk memutar atau simpan video langsung ke galeri HP.
             </p>
-            <div style={{ background: "#FFFFFF", padding: 12, borderRadius: 4 }}>
-              <img
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(
-                  window.location.origin + previewClipUrl(clip.id)
-                )}`}
-                alt="QR Code Klip"
-                style={{ width: 200, height: 200, display: "block" }}
-              />
+            <div style={{ background: "#FFFFFF", padding: 12, borderRadius: 4, minWidth: 220, minHeight: 220, display: "grid", placeItems: "center" }}>
+              {qrDataUrl ? (
+                <img
+                  src={qrDataUrl}
+                  alt="QR Code Klip"
+                  style={{ width: 220, height: 220, display: "block" }}
+                />
+              ) : (
+                <div style={{ color: "#222222", fontSize: 12, fontWeight: 600 }}>Menyiapkan QR...</div>
+              )}
             </div>
             <div style={{ display: "flex", gap: 8, width: "100%" }}>
               <button

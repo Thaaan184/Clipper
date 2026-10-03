@@ -49,10 +49,18 @@ export default function SubtitleEditorModal({
         if (!cancelled) setLoading(false)
       })
 
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !saving) {
+        onClose()
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown)
+
     return () => {
       cancelled = true
+      window.removeEventListener("keydown", handleKeyDown)
     }
-  }, [isOpen, clip.id])
+  }, [isOpen, clip.id, saving, onClose])
 
   if (!isOpen) return null
 
@@ -80,6 +88,12 @@ export default function SubtitleEditorModal({
     // Synchronize to cues: split by non-empty lines
     const lines = text.split("\n").map((l) => l.trim()).filter(Boolean)
     if (lines.length === 0) return
+
+    // If same number of lines as existing cues, preserve exact timestamps
+    if (lines.length === cues.length) {
+      setCues(cues.map((c, i) => ({ ...c, text: lines[i] })))
+      return
+    }
 
     const sliceDur = clip.duration / lines.length
     const newCues: SubtitleCue[] = lines.map((line, i) => ({

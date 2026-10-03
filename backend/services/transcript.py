@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 def _extract_video_id(url: str) -> str:
     """Extract YouTube video ID from any URL format."""
     patterns = [
-        r"youtube\.com/watch\?v=([\w\-]{11})",
+        r"[?&]v=([\w\-]{11})",
+        r"youtube\.com/watch\?.*?v=([\w\-]{11})",
         r"youtu\.be/([\w\-]{11})",
         r"youtube\.com/live/([\w\-]{11})",
         r"youtube\.com/shorts/([\w\-]{11})",

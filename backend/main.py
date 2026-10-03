@@ -8,6 +8,7 @@ import logging
 import re
 import uuid
 import zipfile
+import tempfile
 from typing import Any
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +18,7 @@ from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.background import BackgroundTask
 
 from config import settings
 from db import init_db, get_db
@@ -537,9 +539,13 @@ async def retry_clip(clip_id: str, req: RenderRequest):
             raise HTTPException(404, "Klip tidak ditemukan")
         clip = dict(rows[0])
 
-    start_time = float(req.start_time) if req.start_time is not None else float(clip["start_time"])
-    end_time = float(req.end_time) if req.end_time is not None else float(clip["end_time"])
-    duration = round(max(1.0, end_time - start_time), 2)
+    start_time = max(0.0, float(req.start_time) if req.start_time is not None else float(clip["start_time"]))
+    raw_end = float(req.end_time) if req.end_time is not None else float(clip["end_time"])
+    if raw_end <= start_time:
+        raise HTTPException(400, "Waktu selesai harus lebih besar dari waktu mulai")
+    # Clamp clip duration between 3.0s and 180.0s for short-form platform safety
+    duration = round(min(180.0, max(3.0, raw_end - start_time)), 2)
+    end_time = round(start_time + duration, 2)
     hook_title = req.hook_title.strip() if req.hook_title else clip["hook_title"]
     layout = req.layout or clip.get("layout", "blur")
     subtitle_lang = req.subtitle_lang or clip.get("subtitle_lang", "id")
@@ -681,53 +687,61 @@ async def download_video_bundle(video_id: str):
     if not ready_clips:
         raise HTTPException(400, "Belum ada klip yang selesai dirender")
 
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-        for c in ready_clips:
-            file_path = Path(c["file_path"])
-            arcname = f"Clip_{c['clip_index']:02d}_{c['id'][:8]}.mp4"
-            zip_file.write(file_path, arcname=arcname)
-
-        copy_lines = [
-            "=" * 60,
-            "CLIPFORGE // METADATA & COPYWRITING READY TO POST",
-            f"Proyek : {video.get('title', 'Video')}",
-            f"URL    : {video.get('url', '')}",
-            "=" * 60,
-            "",
-        ]
-        for c in clips:
-            tags = []
-            try:
-                tags = json.loads(c.get("hashtags") or "[]")
-            except Exception:
-                pass
-            tag_str = " ".join(f"#{t}" if not t.startswith("#") else t for t in tags)
-
-            copy_lines.extend([
-                f"[KLIP {c['clip_index']:02d}] {c.get('hook_title', 'Untitled')}",
-                f"Durasi : {round(c['duration'])} detik ({c['start_time']}s – {c['end_time']}s)",
-                f"Layout : {c.get('layout', 'blur').upper()}",
-                "",
-                "Caption:",
-                c.get("caption") or c.get("hook_title") or "",
-                "",
-                "Hashtags:",
-                tag_str,
-                "-" * 60,
-                "",
-            ])
-        zip_file.writestr("copywriting_dan_hashtags.txt", "\n".join(copy_lines))
-
-    zip_buffer.seek(0)
     safe_title = re.sub(r'[^a-zA-Z0-9_\-]', '_', video.get("title", "clipforge"))[:30]
     filename = f"{safe_title}_clips.zip"
 
-    return StreamingResponse(
-        zip_buffer,
-        media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+    # Write ZIP directly to disk temp file to prevent RAM heap exhaustion
+    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp_file:
+        tmp_zip_path = Path(tmp_file.name)
+
+    try:
+        with zipfile.ZipFile(tmp_zip_path, "w", zipfile.ZIP_STORED) as zip_file:
+            for c in ready_clips:
+                file_path = Path(c["file_path"])
+                arcname = f"Clip_{c['clip_index']:02d}_{c['id'][:8]}.mp4"
+                zip_file.write(file_path, arcname=arcname)
+
+            copy_lines = [
+                "=" * 60,
+                "CLIPFORGE // METADATA & COPYWRITING READY TO POST",
+                f"Proyek : {video.get('title', 'Video')}",
+                f"URL    : {video.get('url', '')}",
+                "=" * 60,
+                "",
+            ]
+            for c in clips:
+                tags = []
+                try:
+                    tags = json.loads(c.get("hashtags") or "[]")
+                except Exception:
+                    pass
+                tag_str = " ".join(f"#{t}" if not t.startswith("#") else t for t in tags)
+
+                copy_lines.extend([
+                    f"[KLIP {c['clip_index']:02d}] {c.get('hook_title', 'Untitled')}",
+                    f"Durasi : {round(c['duration'])} detik ({c['start_time']}s – {c['end_time']}s)",
+                    f"Layout : {c.get('layout', 'blur').upper()}",
+                    "",
+                    "Caption:",
+                    c.get("caption") or c.get("hook_title") or "",
+                    "",
+                    "Hashtags:",
+                    tag_str,
+                    "-" * 60,
+                    "",
+                ])
+            zip_file.writestr("copywriting_dan_hashtags.txt", "\n".join(copy_lines))
+
+        return FileResponse(
+            str(tmp_zip_path),
+            media_type="application/zip",
+            filename=filename,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            background=BackgroundTask(lambda: tmp_zip_path.unlink(missing_ok=True)),
+        )
+    except Exception:
+        tmp_zip_path.unlink(missing_ok=True)
+        raise
 
 
 @app.delete("/api/videos/{video_id}")

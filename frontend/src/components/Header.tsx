@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from "react"
+import React, { useEffect, useRef } from "react"
 import { Link, useLocation } from "react-router-dom"
 
 export default function Header() {
   const loc = useLocation()
-  const [tc, setTc] = useState("00:00:00:00")
+  const tcRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     let frame = 0
@@ -14,7 +14,9 @@ export default function Header() {
       const m = String(Math.floor((s % 3600) / 60)).padStart(2, "0")
       const sec = String(s % 60).padStart(2, "0")
       const f = String(frame % 24).padStart(2, "0")
-      setTc(`${h}:${m}:${sec}:${f}`)
+      if (tcRef.current) {
+        tcRef.current.textContent = `${h}:${m}:${sec}:${f}`
+      }
     }, 42)
     return () => clearInterval(interval)
   }, [])
@@ -32,12 +34,23 @@ export default function Header() {
         <Link to="/" className={`nav-tab ${loc.pathname === "/" ? "active" : ""}`}>
           BERANDA
         </Link>
-        <a href="#proyek" className="nav-tab">
+        <Link
+          to="/#proyek"
+          className="nav-tab"
+          onClick={() => {
+            if (loc.pathname === "/") {
+              const el = document.getElementById("proyek")
+              if (el) el.scrollIntoView({ behavior: "smooth" })
+            }
+          }}
+        >
           PROYEK
-        </a>
+        </Link>
       </nav>
 
-      <div className="header-tc">{tc}</div>
+      <div className="header-tc" ref={tcRef}>
+        00:00:00:00
+      </div>
     </header>
   )
 }

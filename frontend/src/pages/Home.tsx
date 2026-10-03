@@ -41,6 +41,12 @@ export default function Home() {
 
   useEffect(() => {
     getProjects().then(setProjects).catch(() => {})
+    if (window.location.hash === "#proyek") {
+      setTimeout(() => {
+        const el = document.getElementById("proyek")
+        if (el) el.scrollIntoView({ behavior: "smooth" })
+      }, 100)
+    }
   }, [])
 
   const handleDeleteProject = async (e: React.MouseEvent, id: string) => {
@@ -59,7 +65,7 @@ export default function Home() {
     setErr("")
 
     const clean = url.trim()
-    const valid = /^(https?:\/\/)?((www|m)\.)?(youtube\.com\/(watch\?v=|live\/|shorts\/|embed\/)|youtu\.be\/)[\w\-]{11}/i.test(clean)
+    const valid = /^(https?:\/\/)?((www|m)\.)?(youtube\.com\/(watch\?.*?v=|live\/|shorts\/|embed\/)|youtu\.be\/)[\w\-]{11}/i.test(clean)
     if (!valid) {
       setErr("Link ini bukan YouTube valid. Masukkan link youtube.com/watch?v=..., youtube.com/live/..., youtube.com/shorts/..., atau youtu.be/...")
       return

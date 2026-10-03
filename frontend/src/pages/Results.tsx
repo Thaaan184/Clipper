@@ -14,6 +14,7 @@ export default function Results() {
   const [toastMsg, setToastMsg] = useState("")
   const [toastVisible, setToastVisible] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   // Re-scout controls
   const [showRescan, setShowRescan] = useState(false)
@@ -32,12 +33,17 @@ export default function Results() {
 
   const loadData = () => {
     if (!videoId) return
+    setLoading(true)
+    setError(null)
     getVideo(videoId)
       .then((v) => {
         setVideo(v)
         setLoading(false)
       })
-      .catch(() => setLoading(false))
+      .catch((err) => {
+        setLoading(false)
+        setError(err instanceof Error ? err.message : "Proyek tidak ditemukan")
+      })
   }
 
   const handleDelete = async () => {
@@ -113,6 +119,27 @@ export default function Results() {
         a.click()
       }, idx * 400)
     })
+  }
+
+  if (!loading && (!video || error)) {
+    return (
+      <div style={{ maxWidth: 640, margin: "100px auto", textAlign: "center", padding: "0 24px" }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
+        <h2 style={{ fontSize: 24, fontWeight: 800, marginBottom: 8, color: "#F5F5F5" }}>
+          Proyek Tidak Ditemukan
+        </h2>
+        <p style={{ color: "#9A9A9A", fontSize: 14, marginBottom: 28, lineHeight: 1.5 }}>
+          {error || `ID proyek "${videoId}" tidak ditemukan di database atau file telah dihapus.`}
+        </p>
+        <Link
+          to="/"
+          className="btn-primary"
+          style={{ display: "inline-flex", textDecoration: "none", height: 48, alignItems: "center" }}
+        >
+          ← Kembali ke Beranda
+        </Link>
+      </div>
+    )
   }
 
   return (

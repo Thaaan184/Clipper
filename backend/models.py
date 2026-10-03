@@ -14,7 +14,7 @@ class ScanRequest(BaseModel):
     @field_validator("url")
     @classmethod
     def validate_youtube_url(cls, v: str) -> str:
-        pattern = r"^(https?://)?((www|m)\.)?(youtube\.com/(watch\?v=|live/|shorts/|embed/)|youtu\.be/)[\w\-]{11}"
+        pattern = r"^(https?://)?((www|m)\.)?(youtube\.com/(watch\?.*?v=|live/|shorts/|embed/)|youtu\.be/)[\w\-]{11}"
         if not re.search(pattern, v, re.IGNORECASE):
             raise ValueError("Bukan link YouTube valid")
         return v

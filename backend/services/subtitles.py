@@ -39,10 +39,11 @@ def _ts(seconds: float) -> str:
 
 def _srt_ts(seconds: float) -> str:
     """Convert float seconds to SRT timestamp HH:MM:SS,mmm"""
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = seconds % 60
-    ms = min(999, max(0, int(round((seconds - int(seconds)) * 1000))))
+    total = max(0.0, float(seconds))
+    h = int(total // 3600)
+    m = int((total % 3600) // 60)
+    s = int(total % 60)
+    ms = min(999, max(0, int(round((total - int(total)) * 1000))))
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
