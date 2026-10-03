@@ -19,6 +19,7 @@ def _extract_video_id(url: str) -> str:
     patterns = [
         r"youtube\.com/watch\?v=([\w\-]{11})",
         r"youtu\.be/([\w\-]{11})",
+        r"youtube\.com/live/([\w\-]{11})",
         r"youtube\.com/shorts/([\w\-]{11})",
         r"youtube\.com/embed/([\w\-]{11})",
     ]

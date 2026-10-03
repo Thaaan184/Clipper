@@ -110,12 +110,15 @@ async def run_ingest(
         # Step 3: Audio spike detection
         await emit("ingest", 60, "Analisis energi audio...")
         spikes = []
-        if audio_path is None:
-            # Download audio only for spike detection
+        if audio_path is None and duration <= 7200:
+            # Download audio for spike detection only if video <= 2 hours to save bandwidth/RAM
             audio_path = await download_audio(url, video_id)
 
         if audio_path and audio_path.exists():
-            spikes = await detect_energy_spikes(audio_path)
+            try:
+                spikes = await detect_energy_spikes(audio_path)
+            except Exception as e:
+                logger.warning("Spike detection error: %s", e)
 
         spikes_json = json.dumps(spikes)
         await _update_video(db_path, video_id, audio_spikes=spikes_json)

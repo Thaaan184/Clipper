@@ -48,9 +48,9 @@ export default function Home() {
     setErr("")
 
     const clean = url.trim()
-    const valid = /^https?:\/\/(www\.)?(youtube\.com\/watch\?v=|youtu\.be\/)[\w\-]{11}/.test(clean)
+    const valid = /^(https?:\/\/)?((www|m)\.)?(youtube\.com\/(watch\?v=|live\/|shorts\/|embed\/)|youtu\.be\/)[\w\-]{11}/i.test(clean)
     if (!valid) {
-      setErr("Link ini bukan YouTube. Tempel link youtube.com/watch?v=... atau youtu.be/...")
+      setErr("Link ini bukan YouTube valid. Masukkan link youtube.com/watch?v=..., youtube.com/live/..., youtube.com/shorts/..., atau youtu.be/...")
       return
     }
 

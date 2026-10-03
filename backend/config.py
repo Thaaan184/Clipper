@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     # App
     port: int = 8080
     data_dir: Path = BASE_DIR / "data"
-    max_video_duration: int = 10800  # 3 hours
+    max_video_duration: int = 43200  # 12 hours (dukung live streams & VOD panjang)
     max_concurrent_renders: int = 3
     max_pending_jobs: int = 5
     max_disk_gb: int = 10
