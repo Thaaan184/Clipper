@@ -88,6 +88,7 @@ async def render_clip(
     db_path: str,
     custom_subtitles: list[dict] | None = None,
     custom_transcript: str | None = None,
+    subtitle_style: str = "popin",
 ) -> str | None:
     """
     Phase 3: Download clip range + reframe + subtitle burn.
@@ -136,7 +137,7 @@ async def render_clip(
 
         if custom_subtitles and len(custom_subtitles) > 0 and subtitle_lang != "none":
             await emit(40, "Menerapkan subtitle kustom yang telah diedit...")
-            ass_content = build_ass_from_cues(custom_subtitles, clip_start_offset=0.0)
+            ass_content = build_ass_from_cues(custom_subtitles, clip_start_offset=0.0, style_preset=subtitle_style)
             sub_path.write_text(ass_content, encoding="utf-8")
             sub_ok = True
             subtitles_saved = custom_subtitles
@@ -144,7 +145,7 @@ async def render_clip(
             await emit(60, f"Subtitle kustom siap, reframe ke 9:16 [{layout}]...")
         elif subtitle_lang and subtitle_lang.lower() != "none":
             await emit(40, "Download selesai, generate subtitle...")
-            sub_ok, segments = await generate_subtitle(raw_path, sub_path, clip_start_offset=0.0, lang=subtitle_lang)
+            sub_ok, segments = await generate_subtitle(raw_path, sub_path, clip_start_offset=0.0, lang=subtitle_lang, style_preset=subtitle_style)
             if sub_ok:
                 subtitles_saved = segments
                 transcript_saved = " ".join(s.get("text", "") for s in segments)

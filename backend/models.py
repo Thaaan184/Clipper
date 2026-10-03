@@ -95,6 +95,7 @@ class RescanRequest(BaseModel):
 class RenderRequest(BaseModel):
     layout: Optional[str] = "blur"
     subtitle_lang: Optional[str] = "id"
+    subtitle_style: Optional[str] = "popin"
     start_time: Optional[float] = None
     end_time: Optional[float] = None
     hook_title: Optional[str] = None

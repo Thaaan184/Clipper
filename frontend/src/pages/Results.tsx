@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react"
 import { useParams, Link, useNavigate } from "react-router-dom"
 import ClipCard from "@/components/ClipCard"
-import { getVideo, downloadClipUrl, deleteProject, rescanVideo } from "@/lib/api"
+import { getVideo, downloadClipUrl, downloadVideoBundleUrl, deleteProject, rescanVideo } from "@/lib/api"
 import type { VideoInfo, ClipInfo } from "@/lib/api"
 
 type SortKey = "score" | "duration" | "time"
@@ -85,13 +85,26 @@ export default function Results() {
 
   const doneCount = clips.filter((c) => c.status === "done").length
 
+  const handleDownloadZipBundle = () => {
+    if (!videoId) return
+    const doneClips = clips.filter((c) => c.status === "done")
+    if (doneClips.length === 0) {
+      showToast("Belum ada klip yang selesai dirender")
+      return
+    }
+    showToast(`Mengemas ${doneClips.length} klip & metadata ke file ZIP...`)
+    const a = document.createElement("a")
+    a.href = downloadVideoBundleUrl(videoId)
+    a.click()
+  }
+
   const handleDownloadAll = () => {
     const doneClips = clips.filter((c) => c.status === "done")
     if (doneClips.length === 0) {
       showToast("Belum ada klip yang selesai dirender")
       return
     }
-    showToast(`Mengunduh ${doneClips.length} klip...`)
+    showToast(`Mengunduh ${doneClips.length} klip satu per satu...`)
     doneClips.forEach((c, idx) => {
       setTimeout(() => {
         const a = document.createElement("a")
@@ -140,11 +153,21 @@ export default function Results() {
           </button>
           <button
             className="btn-primary"
+            onClick={handleDownloadZipBundle}
+            disabled={doneCount === 0}
+            title="Download seluruh klip MP4 + file teks copywriting dalam 1 arsip ZIP"
+          >
+            📦 Paket ZIP ({doneCount})
+            <span aria-hidden="true">↓</span>
+          </button>
+          <button
+            className="btn-ghost"
             onClick={handleDownloadAll}
             disabled={doneCount === 0}
+            style={{ height: 52 }}
+            title="Download klip satu per satu"
           >
-            Download Semua ({doneCount})
-            <span aria-hidden="true">↓</span>
+            Download Satuan
           </button>
           <button
             onClick={handleDelete}
@@ -244,6 +267,7 @@ export default function Results() {
                 <option value="blur">Blur BG (9:16)</option>
                 <option value="center">Center Crop</option>
                 <option value="stacked">Stacked (Cam)</option>
+                <option value="tri_split">Tri-Split (Pro Gaming)</option>
               </select>
             </div>
 

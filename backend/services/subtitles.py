@@ -20,13 +20,13 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,DejaVu Sans,76,&H00F5F5F5,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,1,0,1,6,2,2,60,60,220,1
+Style: Default,DejaVu Sans,76,&H00F5F5F5,&H000000FF,&H00000000,&H90000000,-1,0,0,0,100,100,1,0,1,6,2,2,60,60,280,1
+Style: Hormozi,DejaVu Sans,80,&H00F5F5F5,&H0000FFFF,&H00000000,&HB0000000,-1,0,0,0,100,100,2,0,1,8,3,2,60,60,280,1
+Style: Minimal,DejaVu Sans,68,&H00F5F5F5,&H00000000,&H00000000,&H80000000,0,0,0,0,100,100,1,0,3,2,1,2,60,60,280,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
-
-# &H0000A8FF = #FF6A00 in ASS BGR format
 
 
 def _ts(seconds: float) -> str:
@@ -37,13 +37,47 @@ def _ts(seconds: float) -> str:
     return f"{h}:{m:02d}:{s:05.2f}"
 
 
-def build_ass_from_segments(segments: list[dict], clip_start_offset: float = 0.0) -> str:
+def _srt_ts(seconds: float) -> str:
+    """Convert float seconds to SRT timestamp HH:MM:SS,mmm"""
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = seconds % 60
+    ms = min(999, max(0, int(round((seconds - int(seconds)) * 1000))))
+    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+
+def cues_to_srt(cues: list[dict]) -> str:
+    """Export subtitle cues into standard .SRT format."""
+    blocks = []
+    for idx, c in enumerate(cues, start=1):
+        start = max(0.0, float(c.get("start", 0)))
+        end = max(start + 0.1, float(c.get("end", start + 3.0)))
+        txt = str(c.get("text", "")).strip()
+        if not txt:
+            continue
+        blocks.append(f"{idx}\n{_srt_ts(start)} --> {_srt_ts(end)}\n{txt}\n")
+    return "\n".join(blocks)
+
+
+def build_ass_from_segments(segments: list[dict], clip_start_offset: float = 0.0, style_preset: str = "popin") -> str:
     """
     Build .ass kinetic/motion subtitle content with chunked 3-4 word displays,
-    active word pop scale (112%) and orange (#FF6A00) highlight.
+    active word pop scale (112%) and orange/green highlight based on style.
     """
     events = []
     CHUNK_SIZE = 4
+
+    style_name = "Default"
+    active_tag = "{\\fscx114\\fscy114\\c&H0000A8FF&}"  # Orange #FF6A00
+    reset_tag = "{\\fscx100\\fscy100\\c&H00F5F5F5&}"
+
+    if style_preset == "hormozi":
+        style_name = "Hormozi"
+        active_tag = "{\\fscx118\\fscy118\\c&H0000FF55&}"  # Neon Green #55FF00
+    elif style_preset == "minimal":
+        style_name = "Minimal"
+        active_tag = "{\\c&H0000A8FF&}"
+        reset_tag = "{\\c&H00F5F5F5&}"
 
     for seg in segments:
         seg_start = seg["start"] - clip_start_offset
@@ -59,7 +93,6 @@ def build_ass_from_segments(segments: list[dict], clip_start_offset: float = 0.0
         words = seg.get("words", [])
 
         if words and len(words) > 1:
-            # Chunk words into groups of 3-4 words for fast mobile readability
             word_chunks = [words[k:k + CHUNK_SIZE] for k in range(0, len(words), CHUNK_SIZE)]
 
             for chunk in word_chunks:
@@ -76,21 +109,19 @@ def build_ass_from_segments(segments: list[dict], clip_start_offset: float = 0.0
                     for j, w in enumerate(chunk):
                         w_text = w["word"].strip().upper()
                         if j == i:
-                            # Active word: pop 112% size + solid orange #FF6A00
-                            line_parts.append(f"{{\\fscx112\\fscy112\\c&H0000A8FF&}}{w_text}{{\\fscx100\\fscy100\\c&H00F5F5F5&}}")
+                            line_parts.append(f"{active_tag}{w_text}{reset_tag}")
                         else:
                             line_parts.append(w_text)
 
                     line_text = " ".join(line_parts)
-                    events.append(f"Dialogue: 0,{_ts(w_start)},{_ts(w_end)},Default,,0,0,0,,{line_text}")
+                    events.append(f"Dialogue: 0,{_ts(w_start)},{_ts(w_end)},{style_name},,0,0,0,,{line_text}")
         else:
-            # Fallback when word timestamps are unavailable
-            events.append(f"Dialogue: 0,{_ts(seg_start)},{_ts(seg_end)},Default,,0,0,0,,{text.upper()}")
+            events.append(f"Dialogue: 0,{_ts(seg_start)},{_ts(seg_end)},{style_name},,0,0,0,,{text.upper()}")
 
     return ASS_HEADER + "\n".join(events) + "\n"
 
 
-def build_ass_from_cues(cues: list[dict], clip_start_offset: float = 0.0) -> str:
+def build_ass_from_cues(cues: list[dict], clip_start_offset: float = 0.0, style_preset: str = "popin") -> str:
     """
     Build .ass kinetic subtitles from a list of user-provided or stored cues.
     Each cue: {"start": float, "end": float, "text": str, "words": optional list}
@@ -123,7 +154,7 @@ def build_ass_from_cues(cues: list[dict], clip_start_offset: float = 0.0) -> str
             "text": text,
             "words": words,
         })
-    return build_ass_from_segments(segments, clip_start_offset)
+    return build_ass_from_segments(segments, clip_start_offset, style_preset=style_preset)
 
 
 async def generate_subtitle(
@@ -131,6 +162,7 @@ async def generate_subtitle(
     output_path: Path,
     clip_start_offset: float = 0.0,
     lang: str = "id",
+    style_preset: str = "popin",
 ) -> tuple[bool, list[dict]]:
     """
     Transcribe audio clip with faster-whisper word-level timestamps,
@@ -175,7 +207,7 @@ async def generate_subtitle(
             logger.warning("No segments from whisper for %s", audio_path.name)
             return False, []
 
-        ass_content = build_ass_from_segments(segments, clip_start_offset)
+        ass_content = build_ass_from_segments(segments, clip_start_offset, style_preset=style_preset)
         output_path.write_text(ass_content, encoding="utf-8")
         logger.info("Subtitle written: %s (%d events)", output_path.name, len(segments))
         return True, segments

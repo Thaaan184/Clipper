@@ -102,10 +102,44 @@ def _stacked_cmd(input_path: Path, output_path: Path, subtitle_path: Path | None
     ]
 
 
+def _tri_split_cmd(input_path: Path, output_path: Path, subtitle_path: Path | None = None) -> list[str]:
+    """
+    Layout: Tri-Split Pro Gaming.
+    - Top (576px / 30%): Facecam / Player reaction crop
+    - Mid (960px / 50%): Crosshair / Gameplay action focus
+    - Bottom (384px / 20%): HUD status / Weapon / Killfeed
+    Stacked vertically to 1080x1920.
+    """
+    filters = (
+        "[0:v]crop=iw*0.35:ih*0.35:0:0,scale=1080:576:flags=lanczos[cam];"
+        "[0:v]crop=iw*0.65:ih*0.65:iw*0.175:ih*0.175,scale=1080:960:flags=lanczos[game];"
+        "[0:v]crop=iw*0.7:ih*0.25:iw*0.15:ih*0.75,scale=1080:384:flags=lanczos[hud];"
+        "[cam][game][hud]vstack=inputs=3[v]"
+    )
+    if subtitle_path and subtitle_path.exists():
+        sub_esc = _escape_filter_path(subtitle_path)
+        filters += f";[v]ass='{sub_esc}'[vout]"
+        map_video = "[vout]"
+    else:
+        map_video = "[v]"
+
+    return [
+        "ffmpeg", "-y", "-i", str(input_path),
+        "-filter_complex", filters,
+        "-map", map_video, "-map", "0:a?",
+        "-c:v", "libx264", "-preset", "faster", "-crf", "18",
+        "-c:a", "aac", "-b:a", "192k",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        str(output_path),
+    ]
+
+
 LAYOUT_MAP = {
     "blur": _blur_bg_cmd,
     "center": _center_crop_cmd,
     "stacked": _stacked_cmd,
+    "tri_split": _tri_split_cmd,
 }
 
 
@@ -142,10 +176,13 @@ async def reframe(
 
 
 async def loudnorm(input_path: Path, output_path: Path) -> bool:
-    """Normalize audio to -14 LUFS (platform standard)."""
+    """
+    Normalize audio to -14 LUFS with dynamic soft compression & limiter
+    to prevent screeching/shouting distortion.
+    """
     cmd = [
         "ffmpeg", "-y", "-i", str(input_path),
-        "-af", "loudnorm=I=-14:TP=-1:LRA=11",
+        "-af", "acompressor=threshold=-12dB:ratio=3:attack=5:release=50,loudnorm=I=-14:TP=-1.5:LRA=11",
         "-c:v", "copy",
         "-c:a", "aac", "-b:a", "192k",
         str(output_path),

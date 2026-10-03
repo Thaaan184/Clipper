@@ -106,6 +106,7 @@ export interface ClipSubtitlesResponse {
 export interface EditClipParams {
   layout?: string
   subtitle_lang?: string
+  subtitle_style?: string
   start_time?: number
   end_time?: number
   hook_title?: string
@@ -160,6 +161,14 @@ export function downloadClipUrl(clipId: string): string {
 
 export function previewClipUrl(clipId: string): string {
   return `${API_BASE}/clips/${clipId}/preview`
+}
+
+export function exportClipSubtitlesUrl(clipId: string, format: "srt" | "ass" = "srt"): string {
+  return `${API_BASE}/clips/${clipId}/export-subtitles?format=${format}`
+}
+
+export function downloadVideoBundleUrl(videoId: string): string {
+  return `${API_BASE}/videos/${videoId}/bundle`
 }
 
 export interface JobInfo {

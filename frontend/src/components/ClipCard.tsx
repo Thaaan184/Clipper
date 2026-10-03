@@ -1,7 +1,7 @@
 import React, { useState } from "react"
 import MarkedFrame from "./MarkedFrame"
 import SubtitleEditorModal from "./SubtitleEditorModal"
-import { downloadClipUrl, previewClipUrl, retryClip } from "@/lib/api"
+import { downloadClipUrl, previewClipUrl, exportClipSubtitlesUrl, retryClip } from "@/lib/api"
 import type { ClipInfo } from "@/lib/api"
 
 interface ClipCardProps {
@@ -30,16 +30,34 @@ export default function ClipCard({ clip, onToast, onRetry }: ClipCardProps) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [isEditingSubs, setIsEditingSubs] = useState(false)
+  const [showQR, setShowQR] = useState(false)
   const [editTitle, setEditTitle] = useState(clip.hook_title)
   const [editStart, setEditStart] = useState(clip.start_time)
   const [editEnd, setEditEnd] = useState(clip.end_time)
   const [editLayout, setEditLayout] = useState(clip.layout || "blur")
   const [editLang, setEditLang] = useState(clip.subtitle_lang || "id")
+  const [editStyle, setEditStyle] = useState("popin")
   const [saving, setSaving] = useState(false)
 
   const isFail = clip.status === "error"
   const isDone = clip.status === "done"
   const isRunning = clip.status === "rendering" || clip.status === "pending"
+
+  const handleCopyCaption = () => {
+    const rawTags = clip.hashtags || []
+    const tagStr = rawTags.map((t) => (t.startsWith("#") ? t : `#${t}`)).join(" ")
+    const fullText = `${clip.hook_title || ""}\n\n${clip.caption || ""}\n\n${tagStr}`.trim()
+    navigator.clipboard.writeText(fullText)
+    onToast("✓ Caption & Hashtag disalin!")
+  }
+
+  const handleExportSubtitles = (format: "srt" | "ass") => {
+    onToast(`Mengunduh subtitle .${format.toUpperCase()}...`)
+    const a = document.createElement("a")
+    a.href = exportClipSubtitlesUrl(clip.id, format)
+    a.download = `clip_${clip.id.slice(0, 8)}.${format}`
+    a.click()
+  }
 
   const handleDownload = () => {
     onToast(`Mengunduh klip ${String(clip.clip_index).padStart(2, "0")}...`)
@@ -74,6 +92,7 @@ export default function ClipCard({ clip, onToast, onRetry }: ClipCardProps) {
         hook_title: editTitle,
         layout: editLayout,
         subtitle_lang: editLang,
+        subtitle_style: editStyle,
       })
       setIsEditing(false)
       if (onRetry) onRetry()
@@ -321,6 +340,44 @@ export default function ClipCard({ clip, onToast, onRetry }: ClipCardProps) {
           )}
         </div>
 
+        {/* Row 2 Action buttons (Pro Clipper tools) */}
+        {isDone && (
+          <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+            <button
+              className="btn-ghost"
+              style={{ flex: 1.4, justifyContent: "center", padding: "0 6px", fontSize: 10, height: 30 }}
+              onClick={handleCopyCaption}
+              title="Salin judul hook, caption, dan hashtags siap upload ke TikTok / Reels"
+            >
+              📋 Salin Teks
+            </button>
+            <button
+              className="btn-ghost"
+              style={{ flex: 1, justifyContent: "center", padding: "0 6px", fontSize: 10, height: 30 }}
+              onClick={() => setShowQR(true)}
+              title="Scan QR Code untuk tonton / simpan video di HP"
+            >
+              📱 QR HP
+            </button>
+            <button
+              className="btn-ghost"
+              style={{ flex: 0.8, justifyContent: "center", padding: "0 4px", fontSize: 10, height: 30 }}
+              onClick={() => handleExportSubtitles("srt")}
+              title="Download file subtitle mentah .SRT untuk Premiere/CapCut"
+            >
+              .SRT
+            </button>
+            <button
+              className="btn-ghost"
+              style={{ flex: 0.8, justifyContent: "center", padding: "0 4px", fontSize: 10, height: 30 }}
+              onClick={() => handleExportSubtitles("ass")}
+              title="Download file subtitle mentah .ASS kinetic styling"
+            >
+              .ASS
+            </button>
+          </div>
+        )}
+
         {/* Inline Edit Drawer */}
         {isEditing && (
           <div
@@ -421,6 +478,7 @@ export default function ClipCard({ clip, onToast, onRetry }: ClipCardProps) {
                   <option value="blur">Blur BG</option>
                   <option value="center">Center Crop</option>
                   <option value="stacked">Stacked (Cam)</option>
+                  <option value="tri_split">Tri-Split (Gaming)</option>
                 </select>
               </div>
               <div>
@@ -444,6 +502,28 @@ export default function ClipCard({ clip, onToast, onRetry }: ClipCardProps) {
                   <option value="none">Tanpa Subtitle</option>
                 </select>
               </div>
+            </div>
+
+            <div>
+              <label style={{ fontSize: 10, color: "#9A9A9A", display: "block", marginBottom: 3 }}>
+                Gaya / Style Subtitle
+              </label>
+              <select
+                value={editStyle}
+                onChange={(e) => setEditStyle(e.target.value)}
+                style={{
+                  width: "100%",
+                  background: "#0A0A0A",
+                  border: "1px solid #2A2A2A",
+                  color: "#F5F5F5",
+                  padding: "5px 8px",
+                  fontSize: 12,
+                }}
+              >
+                <option value="popin">Viral Pop-in (Oranye/Kuning Kinetic)</option>
+                <option value="hormozi">Hormozi Impact (Neon Green Bold)</option>
+                <option value="minimal">Minimalist Box (Dark Translucent)</option>
+              </select>
             </div>
 
             <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
@@ -498,6 +578,74 @@ export default function ClipCard({ clip, onToast, onRetry }: ClipCardProps) {
           onToast={onToast}
         />
       </MarkedFrame>
+
+      {/* Mobile QR Transfer Modal */}
+      {showQR && (
+        <div
+          onClick={() => setShowQR(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.85)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#141414",
+              border: "1px solid #FF6A00",
+              padding: 24,
+              maxWidth: 360,
+              width: "100%",
+              textAlign: "center",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 16,
+            }}
+          >
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#FF6A00", letterSpacing: "0.08em" }}>
+              TRANSFER KLIP KE SMARTPHONE
+            </div>
+            <p style={{ fontSize: 12, color: "#9A9A9A", margin: 0, lineHeight: 1.4 }}>
+              Scan QR code ini pakai kamera HP kamu untuk memutar atau simpan video langsung ke galeri HP.
+            </p>
+            <div style={{ background: "#FFFFFF", padding: 12, borderRadius: 4 }}>
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(
+                  window.location.origin + previewClipUrl(clip.id)
+                )}`}
+                alt="QR Code Klip"
+                style={{ width: 200, height: 200, display: "block" }}
+              />
+            </div>
+            <div style={{ display: "flex", gap: 8, width: "100%" }}>
+              <button
+                className="btn-ghost"
+                style={{ flex: 1, height: 40, fontSize: 11 }}
+                onClick={() => {
+                  navigator.clipboard.writeText(window.location.origin + previewClipUrl(clip.id))
+                  onToast("✓ Link klip disalin!")
+                }}
+              >
+                Salin Link
+              </button>
+              <button
+                className="btn-primary"
+                style={{ flex: 1, height: 40, fontSize: 11 }}
+                onClick={() => setShowQR(false)}
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

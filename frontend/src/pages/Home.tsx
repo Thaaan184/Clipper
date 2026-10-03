@@ -24,6 +24,7 @@ const LAYOUT_OPTS = [
   { label: "Blur BG", val: "blur" },
   { label: "Center Crop", val: "center" },
   { label: "Stacked (Cam)", val: "stacked" },
+  { label: "Tri-Split (Gaming)", val: "tri_split" },
 ]
 
 export default function Home() {

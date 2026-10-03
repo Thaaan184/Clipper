@@ -2,10 +2,12 @@
 Main FastAPI app — ClipForge backend.
 """
 import asyncio
+import io
 import json
 import logging
 import re
 import uuid
+import zipfile
 from typing import Any
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from config import settings
 from db import init_db, get_db
 from models import ScanRequest, ScanResponse, VideoInfo, ClipInfo, RenderRequest, RescanRequest
+from services.subtitles import cues_to_srt, build_ass_from_cues
 from workers.ingest import run_ingest
 from workers.scout import run_scout
 from workers.editor import render_clip
@@ -558,6 +561,7 @@ async def retry_clip(clip_id: str, req: RenderRequest):
         layout, subtitle_lang, q, str(settings.db_path),
         custom_subtitles=req.custom_subtitles,
         custom_transcript=req.custom_transcript,
+        subtitle_style=req.subtitle_style or "popin",
     ))
 
     return {"job_id": job_id, "clip_id": clip_id}
@@ -625,6 +629,95 @@ async def get_clip_subtitles(clip_id: str):
         "transcript": clip.get("transcript") or " ".join(c["text"] for c in cues if c.get("text")),
         "cues": cues,
     }
+
+
+@app.get("/api/clips/{clip_id}/export-subtitles")
+async def export_clip_subtitles(clip_id: str, format: str = "srt"):
+    """Export subtitles in SRT or ASS format for external NLE editing."""
+    res = await get_clip_subtitles(clip_id)
+    cues = res["cues"]
+    if format.lower() == "ass":
+        content = build_ass_from_cues(cues, style_preset="popin")
+        media_type = "text/x-ssa"
+        filename = f"clip_{clip_id[:8]}.ass"
+    else:
+        content = cues_to_srt(cues)
+        media_type = "text/plain"
+        filename = f"clip_{clip_id[:8]}.srt"
+
+    return StreamingResponse(
+        io.BytesIO(content.encode("utf-8")),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/videos/{video_id}/bundle")
+async def download_video_bundle(video_id: str):
+    """Package all ready clips and copywriting into a single ZIP archive."""
+    async with aiosqlite.connect(str(settings.db_path)) as db:
+        db.row_factory = aiosqlite.Row
+        video_rows = await db.execute_fetchall("SELECT * FROM videos WHERE id = ?", (video_id,))
+        if not video_rows:
+            raise HTTPException(404, "Proyek tidak ditemukan")
+        video = dict(video_rows[0])
+
+        clip_rows = await db.execute_fetchall(
+            "SELECT * FROM clips WHERE video_id = ? ORDER BY clip_index ASC", (video_id,)
+        )
+        clips = [dict(c) for c in clip_rows]
+
+    ready_clips = [c for c in clips if c.get("file_path") and Path(c["file_path"]).exists()]
+    if not ready_clips:
+        raise HTTPException(400, "Belum ada klip yang selesai dirender")
+
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        for c in ready_clips:
+            file_path = Path(c["file_path"])
+            arcname = f"Clip_{c['clip_index']:02d}_{c['id'][:8]}.mp4"
+            zip_file.write(file_path, arcname=arcname)
+
+        copy_lines = [
+            "=" * 60,
+            "CLIPFORGE // METADATA & COPYWRITING READY TO POST",
+            f"Proyek : {video.get('title', 'Video')}",
+            f"URL    : {video.get('url', '')}",
+            "=" * 60,
+            "",
+        ]
+        for c in clips:
+            tags = []
+            try:
+                tags = json.loads(c.get("hashtags") or "[]")
+            except Exception:
+                pass
+            tag_str = " ".join(f"#{t}" if not t.startswith("#") else t for t in tags)
+
+            copy_lines.extend([
+                f"[KLIP {c['clip_index']:02d}] {c.get('hook_title', 'Untitled')}",
+                f"Durasi : {round(c['duration'])} detik ({c['start_time']}s – {c['end_time']}s)",
+                f"Layout : {c.get('layout', 'blur').upper()}",
+                "",
+                "Caption:",
+                c.get("caption") or c.get("hook_title") or "",
+                "",
+                "Hashtags:",
+                tag_str,
+                "-" * 60,
+                "",
+            ])
+        zip_file.writestr("copywriting_dan_hashtags.txt", "\n".join(copy_lines))
+
+    zip_buffer.seek(0)
+    safe_title = re.sub(r'[^a-zA-Z0-9_\-]', '_', video.get("title", "clipforge"))[:30]
+    filename = f"{safe_title}_clips.zip"
+
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.delete("/api/videos/{video_id}")
