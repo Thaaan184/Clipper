@@ -130,7 +130,8 @@ async def transcribe_with_whisper(audio_path: Path, lang: str = "id") -> list[di
             device=settings.whisper_device,
             compute_type="int8",
             cpu_threads=4,
-            local_files_only=True,
+            download_root=str(settings.data_dir / "models"),
+            local_files_only=False,
         )
 
         loop = asyncio.get_event_loop()

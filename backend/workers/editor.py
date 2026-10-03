@@ -7,6 +7,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import aiosqlite
 import yt_dlp
@@ -68,7 +69,7 @@ async def render_clip(
     end_time: float,
     layout: str,
     subtitle_lang: str,
-    progress_queue: asyncio.Queue,
+    progress_queue: Any,
     db_path: str,
 ) -> str | None:
     """

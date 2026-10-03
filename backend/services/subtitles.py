@@ -10,7 +10,7 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
-# ASS header — Cutting Room style: flat black bg, white text, orange highlight
+# ASS header — TikTok/Reels viral motion subtitle style
 ASS_HEADER = """\
 [Script Info]
 ScriptType: v4.00+
@@ -20,8 +20,7 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,Fira Sans,72,&H00F5F5F5,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,4,0,2,80,80,120,1
-Style: Highlight,Fira Sans,72,&H0000A8FF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,4,0,2,80,80,120,1
+Style: Default,DejaVu Sans,76,&H00F5F5F5,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,1,0,1,6,2,2,60,60,220,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -40,11 +39,11 @@ def _ts(seconds: float) -> str:
 
 def build_ass_from_segments(segments: list[dict], clip_start_offset: float = 0.0) -> str:
     """
-    Build .ass subtitle content from faster-whisper segments.
-    segments: list of {text, start, duration, words?: [{word, start, end}]}
-    clip_start_offset: subtract this from all timestamps (clips start mid-video)
+    Build .ass kinetic/motion subtitle content with chunked 3-4 word displays,
+    active word pop scale (112%) and orange (#FF6A00) highlight.
     """
     events = []
+    CHUNK_SIZE = 4
 
     for seg in segments:
         seg_start = seg["start"] - clip_start_offset
@@ -60,28 +59,33 @@ def build_ass_from_segments(segments: list[dict], clip_start_offset: float = 0.0
         words = seg.get("words", [])
 
         if words and len(words) > 1:
-            # Word-by-word highlight: whole line visible, active word orange
-            for i, word_obj in enumerate(words):
-                w_start = word_obj["start"] - clip_start_offset
-                w_end = word_obj["end"] - clip_start_offset
+            # Chunk words into groups of 3-4 words for fast mobile readability
+            word_chunks = [words[k:k + CHUNK_SIZE] for k in range(0, len(words), CHUNK_SIZE)]
 
-                if w_start < 0:
+            for chunk in word_chunks:
+                if not chunk:
                     continue
+                for i, word_obj in enumerate(chunk):
+                    w_start = word_obj["start"] - clip_start_offset
+                    w_end = word_obj["end"] - clip_start_offset
 
-                # Build line: non-active words normal, active word orange
-                line_parts = []
-                for j, w in enumerate(words):
-                    w_text = w["word"].strip()
-                    if j == i:
-                        line_parts.append(f"{{\\c&H0000A8FF&}}{w_text}{{\\c&H00F5F5F5&}}")
-                    else:
-                        line_parts.append(w_text)
+                    if w_start < 0:
+                        continue
 
-                line_text = " ".join(line_parts)
-                events.append(f"Dialogue: 0,{_ts(w_start)},{_ts(w_end)},Default,,0,0,0,,{line_text}")
+                    line_parts = []
+                    for j, w in enumerate(chunk):
+                        w_text = w["word"].strip().upper()
+                        if j == i:
+                            # Active word: pop 112% size + solid orange #FF6A00
+                            line_parts.append(f"{{\\fscx112\\fscy112\\c&H0000A8FF&}}{w_text}{{\\fscx100\\fscy100\\c&H00F5F5F5&}}")
+                        else:
+                            line_parts.append(w_text)
+
+                    line_text = " ".join(line_parts)
+                    events.append(f"Dialogue: 0,{_ts(w_start)},{_ts(w_end)},Default,,0,0,0,,{line_text}")
         else:
-            # No word timestamps — show full segment
-            events.append(f"Dialogue: 0,{_ts(seg_start)},{_ts(seg_end)},Default,,0,0,0,,{text}")
+            # Fallback when word timestamps are unavailable
+            events.append(f"Dialogue: 0,{_ts(seg_start)},{_ts(seg_end)},Default,,0,0,0,,{text.upper()}")
 
     return ASS_HEADER + "\n".join(events) + "\n"
 
@@ -102,7 +106,8 @@ async def generate_subtitle(
             device=settings.whisper_device,
             compute_type="int8",
             cpu_threads=4,
-            local_files_only=True,
+            download_root=str(settings.data_dir / "models"),
+            local_files_only=False,
         )
 
         loop = asyncio.get_event_loop()

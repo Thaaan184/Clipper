@@ -1,6 +1,6 @@
-import React from "react"
+import React, { useState } from "react"
 import MarkedFrame from "./MarkedFrame"
-import { downloadClipUrl, retryClip } from "@/lib/api"
+import { downloadClipUrl, previewClipUrl, retryClip } from "@/lib/api"
 import type { ClipInfo } from "@/lib/api"
 
 interface ClipCardProps {
@@ -26,6 +26,7 @@ function fmtTime(sec: number): string {
 }
 
 export default function ClipCard({ clip, onToast, onRetry }: ClipCardProps) {
+  const [isPlaying, setIsPlaying] = useState(false)
   const isFail = clip.status === "error"
   const isDone = clip.status === "done"
   const isRunning = clip.status === "rendering"
@@ -52,8 +53,11 @@ export default function ClipCard({ clip, onToast, onRetry }: ClipCardProps) {
   return (
     <div className={`clip-card-wrap ${isFail ? "fail" : ""}`} style={{ background: "#0A0A0A", padding: 14 }}>
       <MarkedFrame>
-        {/* Thumbnail 9:16 */}
+        {/* Thumbnail 9:16 / Video player */}
         <div
+          onClick={() => {
+            if (isDone && !isPlaying) setIsPlaying(true)
+          }}
           style={{
             position: "relative",
             aspectRatio: "9/16",
@@ -61,8 +65,27 @@ export default function ClipCard({ clip, onToast, onRetry }: ClipCardProps) {
             overflow: "hidden",
             borderLeft: "7px dashed #2A2A2A",
             borderRight: "7px dashed #2A2A2A",
+            cursor: isDone && !isPlaying ? "pointer" : "default",
           }}
         >
+          {isPlaying && isDone ? (
+            <video
+              src={previewClipUrl(clip.id)}
+              controls
+              autoPlay
+              playsInline
+              style={{
+                position: "absolute",
+                inset: 0,
+                width: "100%",
+                height: "100%",
+                objectFit: "cover",
+                zIndex: 10,
+                background: "#000",
+              }}
+            />
+          ) : (
+            <>
           <FilmPerforations side="left" />
 
           {/* Clip label */}
@@ -183,6 +206,8 @@ export default function ClipCard({ clip, onToast, onRetry }: ClipCardProps) {
           </span>
 
           <FilmPerforations side="right" />
+            </>
+          )}
         </div>
 
         {/* Card info */}
@@ -225,14 +250,24 @@ export default function ClipCard({ clip, onToast, onRetry }: ClipCardProps) {
               Retry clip
             </button>
           ) : (
-            <button
-              className="btn-ghost"
-              style={{ flex: 1, justifyContent: "center" }}
-              disabled={!isDone}
-              onClick={handleDownload}
-            >
-              {isDone ? "Download" : "Memproses..."}
-            </button>
+            <>
+              <button
+                className={isPlaying ? "btn-primary" : "btn-ghost"}
+                style={{ flex: 1, justifyContent: "center" }}
+                disabled={!isDone}
+                onClick={() => setIsPlaying(!isPlaying)}
+              >
+                {isPlaying ? "Tutup" : "Preview"}
+              </button>
+              <button
+                className="btn-ghost"
+                style={{ flex: 1, justifyContent: "center" }}
+                disabled={!isDone}
+                onClick={handleDownload}
+              >
+                {isDone ? "Download" : "Memproses..."}
+              </button>
+            </>
           )}
         </div>
       </MarkedFrame>

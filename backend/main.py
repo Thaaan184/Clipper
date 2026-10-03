@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import uuid
+from typing import Any
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -34,8 +35,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── In-memory SSE progress queues: job_id -> asyncio.Queue ───────────────────
-_progress_queues: dict[str, asyncio.Queue] = {}
+# ── In-memory SSE pub/sub ───────────────────────────────────────────────────
+from collections import defaultdict
+
+_job_subscribers: dict[str, set[asyncio.Queue]] = defaultdict(set)
+_job_latest_event: dict[str, dict] = {}
+
+
+class BroadcastQueue:
+    def __init__(self, job_id: str):
+        self.job_id = job_id
+
+    async def put(self, event: dict):
+        _job_latest_event[self.job_id] = event
+        subs = list(_job_subscribers.get(self.job_id, set()))
+        for sub_q in subs:
+            try:
+                await sub_q.put(event)
+            except Exception:
+                pass
+
 
 # ── Concurrency semaphore for renders ────────────────────────────────────────
 _render_semaphore = asyncio.Semaphore(settings.max_concurrent_renders)
@@ -103,8 +122,7 @@ async def scan(req: ScanRequest, request: Request):
         )
         await db.commit()
 
-    q: asyncio.Queue = asyncio.Queue()
-    _progress_queues[job_id] = q
+    q = BroadcastQueue(job_id)
 
     # Run pipeline in background
     asyncio.create_task(_run_full_pipeline(job_id, video_id, req, q))
@@ -112,7 +130,7 @@ async def scan(req: ScanRequest, request: Request):
     return ScanResponse(job_id=job_id, video_id=video_id)
 
 
-async def _run_full_pipeline(job_id: str, video_id: str, req: ScanRequest, q: asyncio.Queue):
+async def _run_full_pipeline(job_id: str, video_id: str, req: ScanRequest, q: Any):
     """Full pipeline: ingest → scout → editor (parallel clips)."""
     db_path = str(settings.db_path)
     try:
@@ -197,30 +215,78 @@ def _clip_row_to_dict(row) -> dict:
     return d
 
 
-# ── SSE progress stream ───────────────────────────────────────────────────────
+# ── SSE progress stream & Job status ──────────────────────────────────────────
+@app.get("/api/jobs/{job_id}")
+async def get_job(job_id: str):
+    async with aiosqlite.connect(str(settings.db_path)) as db:
+        db.row_factory = aiosqlite.Row
+        rows = await db.execute_fetchall("SELECT * FROM jobs WHERE id = ?", (job_id,))
+        if not rows:
+            raise HTTPException(404, "Job tidak ditemukan")
+        return dict(rows[0])
+
+
 @app.get("/api/jobs/{job_id}/stream")
 async def stream_job(job_id: str):
     """Server-Sent Events stream for job progress."""
-    if job_id not in _progress_queues:
-        raise HTTPException(404, "Job not found")
+    async with aiosqlite.connect(str(settings.db_path)) as db:
+        db.row_factory = aiosqlite.Row
+        rows = await db.execute_fetchall("SELECT * FROM jobs WHERE id = ?", (job_id,))
+        if not rows:
+            raise HTTPException(404, "Job tidak ditemukan")
+        job = dict(rows[0])
 
-    q = _progress_queues[job_id]
+    # If job is already finished, return immediate state
+    if job.get("status") == "done":
+        async def done_gen():
+            yield f"data: {json.dumps({'event': 'done', 'job_id': job_id, 'progress': 100, 'message': job.get('message') or 'Selesai', 'video_id': job.get('video_id')})}\n\n"
+        return StreamingResponse(
+            done_gen(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+        )
+
+    if job.get("status") == "error":
+        async def err_gen():
+            yield f"data: {json.dumps({'event': 'error', 'job_id': job_id, 'error': job.get('error_msg') or 'Job gagal'})}\n\n"
+        return StreamingResponse(
+            err_gen(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+        )
+
+    sub_q: asyncio.Queue = asyncio.Queue()
+    _job_subscribers[job_id].add(sub_q)
 
     async def event_generator():
         try:
+            # Yield latest event if available, or construct from DB
+            latest = _job_latest_event.get(job_id)
+            if latest:
+                yield f"data: {json.dumps(latest)}\n\n"
+            else:
+                initial_event = {
+                    "event": "progress",
+                    "job_id": job_id,
+                    "phase": job.get("phase", "ingest"),
+                    "progress": job.get("progress", 0),
+                    "message": job.get("message", "Memulai proses..."),
+                }
+                yield f"data: {json.dumps(initial_event)}\n\n"
+
             while True:
                 try:
-                    event = await asyncio.wait_for(q.get(), timeout=30)
+                    event = await asyncio.wait_for(sub_q.get(), timeout=10)
+                    yield f"data: {json.dumps(event)}\n\n"
+                    if event.get("event") in ("done", "error"):
+                        break
                 except asyncio.TimeoutError:
-                    yield "data: {\"event\":\"ping\"}\n\n"
-                    continue
-
-                yield f"data: {json.dumps(event)}\n\n"
-
-                if event.get("event") in ("done", "error"):
-                    break
+                    # Cloudflare keep-alive comment
+                    yield ": keep-alive\n\n"
         finally:
-            _progress_queues.pop(job_id, None)
+            _job_subscribers[job_id].discard(sub_q)
+            if not _job_subscribers[job_id]:
+                _job_subscribers.pop(job_id, None)
 
     return StreamingResponse(
         event_generator(),
@@ -286,6 +352,33 @@ async def download_clip(clip_id: str):
     )
 
 
+@app.get("/api/clips/{clip_id}/preview")
+async def preview_clip(clip_id: str):
+    """Stream video for inline browser playback."""
+    async with aiosqlite.connect(str(settings.db_path)) as db:
+        db.row_factory = aiosqlite.Row
+        rows = await db.execute_fetchall("SELECT * FROM clips WHERE id = ?", (clip_id,))
+        if not rows:
+            raise HTTPException(404, "Clip tidak ditemukan")
+        clip = dict(rows[0])
+
+    if clip["status"] != "done" or not clip.get("file_path"):
+        raise HTTPException(400, f"Clip belum selesai (status: {clip['status']})")
+
+    file_path = Path(clip["file_path"])
+    if not file_path.exists():
+        raise HTTPException(404, "File tidak ditemukan di disk")
+
+    return FileResponse(
+        str(file_path),
+        media_type="video/mp4",
+        headers={
+            "Content-Disposition": "inline",
+            "Accept-Ranges": "bytes",
+        },
+    )
+
+
 @app.post("/api/clips/{clip_id}/retry")
 async def retry_clip(clip_id: str, req: RenderRequest):
     """Re-render a failed clip."""
@@ -300,8 +393,7 @@ async def retry_clip(clip_id: str, req: RenderRequest):
 
     job_id = str(uuid.uuid4())
     now = datetime.utcnow().isoformat()
-    q: asyncio.Queue = asyncio.Queue()
-    _progress_queues[job_id] = q
+    q = BroadcastQueue(job_id)
 
     async with aiosqlite.connect(str(settings.db_path)) as db:
         await db.execute(

@@ -92,6 +92,28 @@ export function downloadClipUrl(clipId: string): string {
   return `${API_BASE}/clips/${clipId}/download`
 }
 
+export function previewClipUrl(clipId: string): string {
+  return `${API_BASE}/clips/${clipId}/preview`
+}
+
+export interface JobInfo {
+  id: string
+  video_id: string
+  clip_id?: string
+  job_type: string
+  status: "pending" | "running" | "done" | "error"
+  phase?: string
+  progress?: number
+  message?: string
+  error_msg?: string
+}
+
+export async function getJob(jobId: string): Promise<JobInfo> {
+  const res = await fetch(`${API_BASE}/jobs/${jobId}`)
+  if (!res.ok) throw new Error("Gagal mengambil status job")
+  return res.json()
+}
+
 export function streamJob(jobId: string, onEvent: (e: Record<string, unknown>) => void): EventSource {
   const es = new EventSource(`${API_BASE}/jobs/${jobId}/stream`)
   es.onmessage = (ev) => {
@@ -100,9 +122,6 @@ export function streamJob(jobId: string, onEvent: (e: Record<string, unknown>) =
       if (data.event !== "ping") onEvent(data)
     } catch (_) {}
   }
-  es.onerror = () => {
-    onEvent({ event: "error", error: "Koneksi SSE terputus" })
-    es.close()
-  }
+  // Let EventSource auto-reconnect on transient error; do not terminate stream prematurely
   return es
 }
