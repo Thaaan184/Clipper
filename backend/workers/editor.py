@@ -38,6 +38,14 @@ async def _update_job(db_path: str, job_id: str, **kwargs):
 def _download_clip_range(url: str, start: float, end: float, output_path: Path) -> Path | None:
     """Download only a time range of the video using yt-dlp."""
     base_tmpl = str(output_path.with_suffix(""))
+
+    # Clean up any stale partial files
+    for stale in output_path.parent.glob(f"{output_path.stem}.*"):
+        try:
+            stale.unlink()
+        except Exception:
+            pass
+
     ydl_opts = {
         "format": "bestvideo[height<=720]+bestaudio/best[height<=720]/best",
         "outtmpl": base_tmpl + ".%(ext)s",
@@ -52,7 +60,13 @@ def _download_clip_range(url: str, start: float, end: float, output_path: Path) 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
         candidates = list(output_path.parent.glob(f"{output_path.stem}.*"))
-        valid = [c for c in candidates if not c.name.endswith(".part") and not c.name.endswith(".ytdl")]
+        valid = [
+            c for c in candidates
+            if not c.name.endswith(".part")
+            and not c.name.endswith(".ytdl")
+            and c.suffix.lower() in [".mp4", ".mkv", ".webm"]
+            and c.stat().st_size > 1000
+        ]
         if valid:
             return valid[0]
         return None
