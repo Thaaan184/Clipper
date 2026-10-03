@@ -4,7 +4,9 @@ Downloads audio-only stream for analysis.
 """
 import asyncio
 import logging
+import shutil
 import subprocess
+import sys
 import numpy as np
 from pathlib import Path
 from config import settings
@@ -15,18 +17,23 @@ logger = logging.getLogger(__name__)
 async def download_audio(url: str, video_id: str) -> Path | None:
     """Download audio-only stream via yt-dlp for analysis/whisper."""
     output_path = settings.raw_dir / f"{video_id}.m4a"
-    if output_path.exists():
+    if output_path.exists() and output_path.stat().st_size > 1000:
         logger.info("Audio already cached: %s", output_path)
         return output_path
 
+    ytdlp_bin = shutil.which("yt-dlp") or str(Path(sys.executable).parent / "yt-dlp") or "yt-dlp"
+    out_tmpl = str(settings.raw_dir / f"{video_id}.%(ext)s")
     cmd = [
-        "yt-dlp",
-        "-f", "bestaudio[ext=m4a]/bestaudio",
-        "-o", str(output_path),
+        ytdlp_bin,
+        "-f", "ba/b",
+        "--remote-components", "ejs:github",
         "--extractor-args", "youtube:player_client=android,web",
+        "--extract-audio",
+        "--audio-format", "m4a",
         "--no-playlist",
         "--quiet",
         "--no-warnings",
+        "-o", out_tmpl,
         url,
     ]
 
@@ -36,12 +43,22 @@ async def download_audio(url: str, video_id: str) -> Path | None:
         )
         _, stderr = await proc.communicate()
 
+        if output_path.exists() and output_path.stat().st_size > 1000:
+            logger.info("Audio downloaded: %s (%.1f MB)", output_path.name, output_path.stat().st_size / 1e6)
+            return output_path
+
+        # If extension differed (e.g. .opus or .webm), check raw_dir
+        matches = list(settings.raw_dir.glob(f"{video_id}.*"))
+        for m in matches:
+            if m.suffix in (".m4a", ".mp3", ".webm", ".opus", ".aac", ".ogg") and m.stat().st_size > 1000:
+                logger.info("Audio downloaded as alternate ext: %s (%.1f MB)", m.name, m.stat().st_size / 1e6)
+                return m
+
         if proc.returncode != 0:
             logger.error("Audio download failed: %s", stderr.decode()[-300:])
             return None
 
-        logger.info("Audio downloaded: %s (%.1f MB)", output_path.name, output_path.stat().st_size / 1e6)
-        return output_path
+        return None
 
     except Exception as e:
         logger.error("yt-dlp audio error: %s", e)

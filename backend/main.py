@@ -478,9 +478,6 @@ async def rescan_video(video_id: str, req: RescanRequest):
             raise HTTPException(404, "Video tidak ditemukan")
         video = dict(rows[0])
 
-    if not video.get("transcript"):
-        raise HTTPException(400, "Video belum memiliki transkrip, tidak dapat di-rescan")
-
     # Delete previous clips and files
     async with aiosqlite.connect(str(settings.db_path)) as db:
         db.row_factory = aiosqlite.Row
@@ -496,14 +493,6 @@ async def rescan_video(video_id: str, req: RescanRequest):
 
     job_id = str(uuid.uuid4())
     now = datetime.utcnow().isoformat()
-    async with aiosqlite.connect(str(settings.db_path)) as db:
-        await db.execute(
-            "INSERT INTO jobs (id, video_id, job_type, status, phase, progress, message, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
-            (job_id, video_id, "scan", "pending", "scout", 10, "Menyiapkan rescan klip...", now, now),
-        )
-        await db.execute("UPDATE videos SET status = 'scouting', updated_at = ? WHERE id = ?", (now, video_id))
-        await db.commit()
-
     q = BroadcastQueue(job_id)
     scan_req = ScanRequest(
         url=video["url"],
@@ -513,7 +502,26 @@ async def rescan_video(video_id: str, req: RescanRequest):
         subtitle_lang=req.subtitle_lang,
         layout=req.layout,
     )
-    asyncio.create_task(_run_rescan_pipeline(job_id, video_id, video, scan_req, q))
+
+    if not video.get("transcript"):
+        async with aiosqlite.connect(str(settings.db_path)) as db:
+            await db.execute(
+                "INSERT INTO jobs (id, video_id, job_type, status, phase, progress, message, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (job_id, video_id, "scan", "pending", "ingest", 5, "Mengambil audio dan transkrip ulang...", now, now),
+            )
+            await db.execute("UPDATE videos SET status = 'downloading', error_msg = NULL, updated_at = ? WHERE id = ?", (now, video_id))
+            await db.commit()
+        asyncio.create_task(_run_full_pipeline(job_id, video_id, scan_req, q))
+    else:
+        async with aiosqlite.connect(str(settings.db_path)) as db:
+            await db.execute(
+                "INSERT INTO jobs (id, video_id, job_type, status, phase, progress, message, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (job_id, video_id, "scan", "pending", "scout", 10, "Menyiapkan rescan klip...", now, now),
+            )
+            await db.execute("UPDATE videos SET status = 'scouting', error_msg = NULL, updated_at = ? WHERE id = ?", (now, video_id))
+            await db.commit()
+        asyncio.create_task(_run_rescan_pipeline(job_id, video_id, video, scan_req, q))
+
     return {"job_id": job_id, "video_id": video_id}
 
 
