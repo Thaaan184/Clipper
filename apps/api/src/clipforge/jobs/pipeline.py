@@ -8,6 +8,9 @@ import aiosqlite
 import numpy as np
 import structlog
 
+from clipforge.asr.models import CandidateTranscript
+from clipforge.asr.whisper import transcribe_candidate_slice
+from clipforge.boundaries.snap import snap_boundaries_to_words
 from clipforge.core.config import settings
 from clipforge.fusion.candidates import make_candidates
 from clipforge.fusion.fuse import fuse
@@ -16,12 +19,14 @@ from clipforge.fusion.snap import refine_boundaries
 from clipforge.ingest.download import download_ingest_assets
 from clipforge.ingest.models import VideoMetadata
 from clipforge.ingest.probe import probe_video
+from clipforge.llm.client import evaluate_candidate_scout
+from clipforge.quality.gate import evaluate_quality_gate
 from clipforge.signals.audio import extract_audio_features
 from clipforge.signals.chat import extract_chat_features
 from clipforge.signals.heatmap import extract_heatmap_features
 from clipforge.signals.models import AudioFeatures, ChatFeatures, HeatmapFeatures
 from clipforge.timeline.models import TimelineResponse
-from clipforge.timeline.service import save_timeline_artifact
+from clipforge.timeline.service import get_candidates_for_job, save_timeline_artifact
 
 logger = structlog.get_logger(__name__)
 
@@ -299,3 +304,221 @@ async def stage_fuse_candidates(
         "preset_used": genre,
     }
     return [str(timeline_path)], metrics
+
+
+# ---------------------------------------------------------
+# Stage 5: TARGETED_ASR
+# ---------------------------------------------------------
+async def stage_targeted_asr(
+    db: aiosqlite.Connection,
+    job_id: str,
+    stage_input: dict[str, Any],
+) -> tuple[list[str], dict[str, Any]]:
+    job_dir = get_job_dir(job_id)
+    signals_dir = job_dir / "signals"
+    transcripts_dir = job_dir / "transcripts"
+    transcripts_dir.mkdir(parents=True, exist_ok=True)
+
+    genre = stage_input.get("genre", "gaming")
+
+    # Locate audio file
+    audio_candidates = list(job_dir.glob("audio_raw.*"))
+    if not audio_candidates:
+        raise RuntimeError(f"Audio file missing in {job_dir}")
+    audio_file = audio_candidates[0]
+
+    # Load audio and chat features
+    audio_feats = AudioFeatures.model_validate_json(
+        (signals_dir / "audio_features.json").read_text(encoding="utf-8")
+    )
+    chat_feats = ChatFeatures.model_validate_json(
+        (signals_dir / "chat_features.json").read_text(encoding="utf-8")
+    )
+
+    # Fetch candidates from DB
+    cands_resp = await get_candidates_for_job(job_id, db)
+    candidates = cands_resp.candidates
+
+    output_files: list[str] = []
+    transcribed_count = 0
+    rejected_talking_count = 0
+
+    for cand in candidates:
+        # Pre-ASR heuristic quality gate
+        gate_res = evaluate_quality_gate(cand, audio_feats, chat_feats, genre=genre)
+        cand.flags = list(set(cand.flags + gate_res.flags))
+
+        if not gate_res.passed:
+            rejected_talking_count += 1
+            cand.status = "rejected"
+            cand.reason = gate_res.reason
+            cand.final_score = round(cand.signal_score * (1.0 - gate_res.score_penalty), 4)
+            # Update DB
+            await db.execute(
+                """
+                UPDATE candidates
+                SET status = ?, reason = ?, flags_json = ?, final_score = ?
+                WHERE id = ? AND job_id = ?
+                """,
+                (
+                    cand.status,
+                    cand.reason,
+                    json.dumps(cand.flags),
+                    cand.final_score,
+                    cand.id,
+                    job_id,
+                ),
+            )
+            continue
+
+        # Targeted ASR transcription on candidate window
+        transcript: CandidateTranscript = transcribe_candidate_slice(
+            audio_path=audio_file,
+            cand=cand,
+            model_name=settings.whisper_model,
+            device=settings.whisper_device,
+            compute_type=settings.whisper_compute,
+        )
+
+        # Word boundary snapping if words were detected
+        if transcript.words:
+            cand = snap_boundaries_to_words(cand, transcript.words)
+
+        # Save transcript artifact
+        tr_path = transcripts_dir / f"{cand.id}.json"
+        tr_path.write_text(transcript.model_dump_json(indent=2), encoding="utf-8")
+        output_files.append(str(tr_path))
+        transcribed_count += 1
+
+        # Update candidate boundaries in DB
+        await db.execute(
+            """
+            UPDATE candidates
+            SET start_s = ?, end_s = ?, flags_json = ?
+            WHERE id = ? AND job_id = ?
+            """,
+            (cand.start_s, cand.end_s, json.dumps(cand.flags), cand.id, job_id),
+        )
+
+    await db.commit()
+
+    metrics = {
+        "transcribed_count": transcribed_count,
+        "rejected_talking_count": rejected_talking_count,
+    }
+    return output_files, metrics
+
+
+# ---------------------------------------------------------
+# Stage 6: SCOUT_RERANK
+# ---------------------------------------------------------
+async def stage_scout_rerank(
+    db: aiosqlite.Connection,
+    job_id: str,
+    stage_input: dict[str, Any],
+) -> tuple[list[str], dict[str, Any]]:
+    job_dir = get_job_dir(job_id)
+    signals_dir = job_dir / "signals"
+    transcripts_dir = job_dir / "transcripts"
+
+    genre = stage_input.get("genre", "gaming")
+
+    meta_path = job_dir / "meta.json"
+    metadata = VideoMetadata.model_validate_json(meta_path.read_text(encoding="utf-8"))
+
+    audio_feats = AudioFeatures.model_validate_json(
+        (signals_dir / "audio_features.json").read_text(encoding="utf-8")
+    )
+    chat_feats = ChatFeatures.model_validate_json(
+        (signals_dir / "chat_features.json").read_text(encoding="utf-8")
+    )
+
+    cands_resp = await get_candidates_for_job(job_id, db)
+    candidates = cands_resp.candidates
+
+    approved_count = 0
+    rejected_count = 0
+
+    for cand in candidates:
+        # Load transcript if exists
+        tr_file = transcripts_dir / f"{cand.id}.json"
+        if tr_file.exists():
+            transcript = CandidateTranscript.model_validate_json(
+                tr_file.read_text(encoding="utf-8")
+            )
+        else:
+            transcript = CandidateTranscript(candidate_id=cand.id)
+
+        # Call LLM Scout or fallback heuristic
+        verdict = await evaluate_candidate_scout(
+            cand=cand,
+            transcript=transcript,
+            meta=metadata,
+            audio_feats=audio_feats,
+            chat_feats=chat_feats,
+            genre=genre,
+        )
+
+        cand.title = verdict.title
+        cand.hook_text = verdict.hook_text
+        cand.category = verdict.category
+        cand.reason = verdict.reason
+        cand.llm_score = verdict.confidence
+        cand.flags = list(set(cand.flags + verdict.flags))
+
+        if verdict.verdict == "REJECT":
+            cand.status = "rejected"
+            cand.final_score = round(cand.signal_score * 0.3, 4)
+            rejected_count += 1
+        else:
+            cand.status = "proposed"
+            cand.final_score = round(cand.signal_score * verdict.confidence, 4)
+            approved_count += 1
+
+    # Re-rank: Sort proposed/approved first by final_score desc, then rejected
+    valid_cands = [c for c in candidates if c.status != "rejected"]
+    rejected_cands = [c for c in candidates if c.status == "rejected"]
+
+    valid_cands.sort(key=lambda c: c.final_score, reverse=True)
+    rejected_cands.sort(key=lambda c: c.final_score, reverse=True)
+
+    reranked = valid_cands + rejected_cands
+    for rank_idx, c in enumerate(reranked, start=1):
+        c.rank = rank_idx
+        await db.execute(
+            """
+            UPDATE candidates
+            SET rank = ?, final_score = ?, llm_score = ?, category = ?,
+                title = ?, hook_text = ?, reason = ?, flags_json = ?, status = ?
+            WHERE id = ? AND job_id = ?
+            """,
+            (
+                c.rank,
+                c.final_score,
+                c.llm_score,
+                c.category,
+                c.title,
+                c.hook_text,
+                c.reason,
+                json.dumps(c.flags),
+                c.status,
+                c.id,
+                job_id,
+            ),
+        )
+
+    await db.commit()
+
+    # Update timeline artifact with re-ranked candidates
+    timeline_file = job_dir / "timeline.json"
+    if timeline_file.exists():
+        tl_data = json.loads(timeline_file.read_text(encoding="utf-8"))
+        tl_data["candidates"] = [c.model_dump() for c in reranked]
+        timeline_file.write_text(json.dumps(tl_data, indent=2), encoding="utf-8")
+
+    metrics = {
+        "approved_count": approved_count,
+        "rejected_count": rejected_count,
+        "top_title": valid_cands[0].title if valid_cands else "None",
+    }
+    return [str(timeline_file)], metrics

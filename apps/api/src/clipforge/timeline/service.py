@@ -105,7 +105,7 @@ async def get_candidates_for_job(
 
     candidates: list[CandidateWindow] = []
     query = """
-        SELECT id, rank, start_s, end_s, peak_s, signal_score, final_score,
+        SELECT id, rank, start_s, end_s, peak_s, signal_score, llm_score, final_score,
                category, title, hook_text, reason, evidence_json, flags_json,
                status, user_start_s, user_end_s
         FROM candidates
@@ -117,11 +117,11 @@ async def get_candidates_for_job(
             evidence: dict[str, Any] = {}
             flags: list[str] = []
             try:
-                evidence = json.loads(r[11])
+                evidence = json.loads(r[12])
             except Exception:
                 pass
             try:
-                flags = json.loads(r[12])
+                flags = json.loads(r[13])
             except Exception:
                 pass
 
@@ -134,16 +134,17 @@ async def get_candidates_for_job(
                     peak_s=float(r[4]),
                     duration_s=round(float(r[3]) - float(r[2]), 2),
                     signal_score=float(r[5]),
-                    final_score=float(r[6]),
-                    category=r[7] or "highlight",
-                    title=r[8] or "",
-                    hook_text=r[9] or "",
-                    reason=r[10] or "",
+                    llm_score=float(r[6]) if r[6] is not None else None,
+                    final_score=float(r[7]),
+                    category=r[8] or "highlight",
+                    title=r[9] or "",
+                    hook_text=r[10] or "",
+                    reason=r[11] or "",
                     evidence=evidence,
                     flags=flags,
-                    status=r[13] or "proposed",
-                    user_start_s=r[14],
-                    user_end_s=r[15],
+                    status=r[14] or "proposed",
+                    user_start_s=r[15],
+                    user_end_s=r[16],
                 )
             )
 

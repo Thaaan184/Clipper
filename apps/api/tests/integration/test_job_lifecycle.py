@@ -52,11 +52,15 @@ async def test_job_lifecycle_to_review():
         patch("clipforge.api.routes.jobs.stage_fetch_signals", new_callable=AsyncMock) as m_fetch,
         patch("clipforge.api.routes.jobs.stage_analyze_signals", new_callable=AsyncMock) as m_ana,
         patch("clipforge.api.routes.jobs.stage_fuse_candidates", new_callable=AsyncMock) as m_fuse,
+        patch("clipforge.api.routes.jobs.stage_targeted_asr", new_callable=AsyncMock) as m_asr,
+        patch("clipforge.api.routes.jobs.stage_scout_rerank", new_callable=AsyncMock) as m_scout,
     ):
         m_val.return_value = (["meta.json"], {"valid": True})
         m_fetch.return_value = (["audio.m4a"], {"downloaded": True})
         m_ana.return_value = (["audio_features.json"], {"extracted": True})
         m_fuse.return_value = (["timeline.json"], {"candidates": 5})
+        m_asr.return_value = (["transcripts.json"], {"transcribed": 5})
+        m_scout.return_value = (["timeline.json"], {"approved": 5})
 
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"

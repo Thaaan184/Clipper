@@ -55,6 +55,7 @@ class CandidateWindow(BaseModel):
     peak_s: float
     duration_s: float
     signal_score: float
+    llm_score: float | None = None
     final_score: float
     category: str = "highlight"
     title: str = ""

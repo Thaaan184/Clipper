@@ -23,6 +23,8 @@ from clipforge.jobs.pipeline import (
     stage_analyze_signals,
     stage_fetch_signals,
     stage_fuse_candidates,
+    stage_scout_rerank,
+    stage_targeted_asr,
     stage_validate,
 )
 from clipforge.jobs.state_machine import transition_job_status
@@ -63,10 +65,12 @@ async def _execute_job_pipeline(job_id: str) -> None:
             }
 
             stages: list[tuple[StageName, Any, float]] = [
-                (StageName.VALIDATE, stage_validate, 0.20),
-                (StageName.FETCH_SIGNALS, stage_fetch_signals, 0.50),
-                (StageName.ANALYZE_SIGNALS, stage_analyze_signals, 0.75),
-                (StageName.FUSE_CANDIDATES, stage_fuse_candidates, 0.95),
+                (StageName.VALIDATE, stage_validate, 0.15),
+                (StageName.FETCH_SIGNALS, stage_fetch_signals, 0.35),
+                (StageName.ANALYZE_SIGNALS, stage_analyze_signals, 0.55),
+                (StageName.FUSE_CANDIDATES, stage_fuse_candidates, 0.70),
+                (StageName.TARGETED_ASR, stage_targeted_asr, 0.85),
+                (StageName.SCOUT_RERANK, stage_scout_rerank, 0.95),
             ]
 
             for stage_name, stage_fn, prog in stages:
