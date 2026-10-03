@@ -633,7 +633,7 @@ async def get_clip_subtitles(clip_id: str):
     }
 
 
-@app.get("/api/clips/{clip_id}/export-subtitles")
+@app.api_route("/api/clips/{clip_id}/export-subtitles", methods=["GET", "HEAD"])
 async def export_clip_subtitles(clip_id: str, format: str = "srt"):
     """Export subtitles in SRT or ASS format for external NLE editing."""
     res = await get_clip_subtitles(clip_id)
@@ -654,7 +654,7 @@ async def export_clip_subtitles(clip_id: str, format: str = "srt"):
     )
 
 
-@app.get("/api/videos/{video_id}/bundle")
+@app.api_route("/api/videos/{video_id}/bundle", methods=["GET", "HEAD"])
 async def download_video_bundle(video_id: str):
     """Package all ready clips and copywriting into a single ZIP archive."""
     async with aiosqlite.connect(str(settings.db_path)) as db:
