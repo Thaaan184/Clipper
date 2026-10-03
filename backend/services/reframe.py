@@ -18,13 +18,13 @@ def _escape_filter_path(p: Path) -> str:
 def _blur_bg_cmd(input_path: Path, output_path: Path, subtitle_path: Path | None = None) -> list[str]:
     """
     Layout: blur background fill, original centered.
-    Safe for game content — full HUD/minimap visible.
-    Optimized: downscales bg to 270x480 for 10x faster blur.
+    High fidelity: lanczos scaling for crisp foreground gameplay & text,
+    CRF 18 for pristine visual quality, 192k audio.
     """
     filters = (
         "[0:v]scale=270:480:force_original_aspect_ratio=increase,"
-        "crop=270:480,boxblur=8:1,scale=1080:1920[bg];"
-        "[0:v]scale=1080:-2[fg];"
+        "crop=270:480,boxblur=10:2,scale=1080:1920:flags=lanczos[bg];"
+        "[0:v]scale=1080:-2:flags=lanczos[fg];"
         "[bg][fg]overlay=(W-w)/2:(H-h)/2[v]"
     )
     if subtitle_path and subtitle_path.exists():
@@ -38,8 +38,8 @@ def _blur_bg_cmd(input_path: Path, output_path: Path, subtitle_path: Path | None
         "ffmpeg", "-y", "-i", str(input_path),
         "-filter_complex", filters,
         "-map", map_video, "-map", "0:a?",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
-        "-c:a", "aac", "-b:a", "128k",
+        "-c:v", "libx264", "-preset", "faster", "-crf", "18",
+        "-c:a", "aac", "-b:a", "192k",
         "-pix_fmt", "yuv420p",
         "-movflags", "+faststart",
         str(output_path),
@@ -50,8 +50,9 @@ def _center_crop_cmd(input_path: Path, output_path: Path, subtitle_path: Path | 
     """
     Layout: center crop to 9:16.
     Best for FPS games — focuses on crosshair area.
+    Lanczos scaling to 1080x1920, CRF 18.
     """
-    filters = "[0:v]crop=ih*9/16:ih,scale=1080:1920[v]"
+    filters = "[0:v]crop=ih*9/16:ih,scale=1080:1920:flags=lanczos[v]"
     if subtitle_path and subtitle_path.exists():
         sub_esc = _escape_filter_path(subtitle_path)
         filters += f";[v]ass='{sub_esc}'[vout]"
@@ -63,8 +64,8 @@ def _center_crop_cmd(input_path: Path, output_path: Path, subtitle_path: Path | 
         "ffmpeg", "-y", "-i", str(input_path),
         "-filter_complex", filters,
         "-map", map_video, "-map", "0:a?",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "22",
-        "-c:a", "aac", "-b:a", "128k",
+        "-c:v", "libx264", "-preset", "faster", "-crf", "18",
+        "-c:a", "aac", "-b:a", "192k",
         "-pix_fmt", "yuv420p",
         "-movflags", "+faststart",
         str(output_path),
@@ -75,10 +76,11 @@ def _stacked_cmd(input_path: Path, output_path: Path, subtitle_path: Path | None
     """
     Layout: top = webcam area (top-left 25%), bottom = gameplay center.
     Best for streamers with facecam overlay.
+    Lanczos scaling, CRF 18.
     """
     filters = (
-        "[0:v]crop=iw*0.3:ih*0.3:0:0,scale=1080:720[cam];"
-        "[0:v]crop=iw*0.7:ih*0.7:iw*0.15:ih*0.15,scale=1080:1200[game];"
+        "[0:v]crop=iw*0.3:ih*0.3:0:0,scale=1080:720:flags=lanczos[cam];"
+        "[0:v]crop=iw*0.7:ih*0.7:iw*0.15:ih*0.15,scale=1080:1200:flags=lanczos[game];"
         "[cam][game]vstack[v]"
     )
     if subtitle_path and subtitle_path.exists():
@@ -92,8 +94,8 @@ def _stacked_cmd(input_path: Path, output_path: Path, subtitle_path: Path | None
         "ffmpeg", "-y", "-i", str(input_path),
         "-filter_complex", filters,
         "-map", map_video, "-map", "0:a?",
-        "-c:v", "libx264", "-preset", "fast", "-crf", "22",
-        "-c:a", "aac", "-b:a", "128k",
+        "-c:v", "libx264", "-preset", "faster", "-crf", "18",
+        "-c:a", "aac", "-b:a", "192k",
         "-pix_fmt", "yuv420p",
         "-movflags", "+faststart",
         str(output_path),
@@ -145,7 +147,7 @@ async def loudnorm(input_path: Path, output_path: Path) -> bool:
         "ffmpeg", "-y", "-i", str(input_path),
         "-af", "loudnorm=I=-14:TP=-1:LRA=11",
         "-c:v", "copy",
-        "-c:a", "aac", "-b:a", "128k",
+        "-c:a", "aac", "-b:a", "192k",
         str(output_path),
     ]
     try:

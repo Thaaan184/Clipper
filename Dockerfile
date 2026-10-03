@@ -13,12 +13,15 @@ RUN npm run build
 # Stage 2: Python Backend + FFmpeg
 FROM python:3.11-slim
 
-# Install system dependencies: FFmpeg, libass, git
+# Install system dependencies: FFmpeg, libass, curl, unzip, deno
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libass-dev \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    unzip \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL https://deno.land/install.sh | sh -s -- -y \
+    && ln -s /root/.deno/bin/deno /usr/local/bin/deno
 
 WORKDIR /app
 
