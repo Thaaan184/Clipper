@@ -22,9 +22,9 @@ def _blur_bg_cmd(input_path: Path, output_path: Path, subtitle_path: Path | None
     CRF 18 for pristine visual quality, 192k audio.
     """
     filters = (
-        "[0:v]scale=270:480:force_original_aspect_ratio=increase,"
+        "[0:v]setpts=PTS-STARTPTS,scale=270:480:force_original_aspect_ratio=increase,"
         "crop=270:480,boxblur=10:2,scale=1080:1920:flags=lanczos[bg];"
-        "[0:v]scale=1080:-2:flags=lanczos[fg];"
+        "[0:v]setpts=PTS-STARTPTS,scale=1080:-2:flags=lanczos[fg];"
         "[bg][fg]overlay=(W-w)/2:(H-h)/2[v]"
     )
     if subtitle_path and subtitle_path.exists():
@@ -37,6 +37,7 @@ def _blur_bg_cmd(input_path: Path, output_path: Path, subtitle_path: Path | None
     return [
         "ffmpeg", "-y", "-i", str(input_path),
         "-filter_complex", filters,
+        "-af", "asetpts=PTS-STARTPTS,aresample=async=1000",
         "-map", map_video, "-map", "0:a?",
         "-c:v", "libx264", "-preset", "faster", "-crf", "21",
         "-maxrate", "8M", "-bufsize", "16M",
@@ -53,7 +54,7 @@ def _center_crop_cmd(input_path: Path, output_path: Path, subtitle_path: Path | 
     Best for FPS games — focuses on crosshair area.
     Lanczos scaling to 1080x1920, CRF 18.
     """
-    filters = "[0:v]crop=ih*9/16:ih,scale=1080:1920:flags=lanczos[v]"
+    filters = "[0:v]setpts=PTS-STARTPTS,crop=ih*9/16:ih,scale=1080:1920:flags=lanczos[v]"
     if subtitle_path and subtitle_path.exists():
         sub_esc = _escape_filter_path(subtitle_path)
         filters += f";[v]ass='{sub_esc}'[vout]"
@@ -64,6 +65,7 @@ def _center_crop_cmd(input_path: Path, output_path: Path, subtitle_path: Path | 
     return [
         "ffmpeg", "-y", "-i", str(input_path),
         "-filter_complex", filters,
+        "-af", "asetpts=PTS-STARTPTS,aresample=async=1000",
         "-map", map_video, "-map", "0:a?",
         "-c:v", "libx264", "-preset", "faster", "-crf", "21",
         "-maxrate", "8M", "-bufsize", "16M",
@@ -81,8 +83,8 @@ def _stacked_cmd(input_path: Path, output_path: Path, subtitle_path: Path | None
     Lanczos scaling, CRF 18.
     """
     filters = (
-        "[0:v]crop=iw*0.3:ih*0.3:0:0,scale=1080:720:flags=lanczos[cam];"
-        "[0:v]crop=iw*0.7:ih*0.7:iw*0.15:ih*0.15,scale=1080:1200:flags=lanczos[game];"
+        "[0:v]setpts=PTS-STARTPTS,crop=iw*0.3:ih*0.3:0:0,scale=1080:720:flags=lanczos[cam];"
+        "[0:v]setpts=PTS-STARTPTS,crop=iw*0.7:ih*0.7:iw*0.15:ih*0.15,scale=1080:1200:flags=lanczos[game];"
         "[cam][game]vstack[v]"
     )
     if subtitle_path and subtitle_path.exists():
@@ -95,6 +97,7 @@ def _stacked_cmd(input_path: Path, output_path: Path, subtitle_path: Path | None
     return [
         "ffmpeg", "-y", "-i", str(input_path),
         "-filter_complex", filters,
+        "-af", "asetpts=PTS-STARTPTS,aresample=async=1000",
         "-map", map_video, "-map", "0:a?",
         "-c:v", "libx264", "-preset", "faster", "-crf", "21",
         "-maxrate", "8M", "-bufsize", "16M",
@@ -114,9 +117,9 @@ def _tri_split_cmd(input_path: Path, output_path: Path, subtitle_path: Path | No
     Stacked vertically to 1080x1920.
     """
     filters = (
-        "[0:v]crop=iw*0.35:ih*0.35:0:0,scale=1080:576:flags=lanczos[cam];"
-        "[0:v]crop=iw*0.65:ih*0.65:iw*0.175:ih*0.175,scale=1080:960:flags=lanczos[game];"
-        "[0:v]crop=iw*0.7:ih*0.25:iw*0.15:ih*0.75,scale=1080:384:flags=lanczos[hud];"
+        "[0:v]setpts=PTS-STARTPTS,crop=iw*0.35:ih*0.35:0:0,scale=1080:576:flags=lanczos[cam];"
+        "[0:v]setpts=PTS-STARTPTS,crop=iw*0.65:ih*0.65:iw*0.175:ih*0.175,scale=1080:960:flags=lanczos[game];"
+        "[0:v]setpts=PTS-STARTPTS,crop=iw*0.7:ih*0.25:iw*0.15:ih*0.75,scale=1080:384:flags=lanczos[hud];"
         "[cam][game][hud]vstack=inputs=3[v]"
     )
     if subtitle_path and subtitle_path.exists():
@@ -129,6 +132,7 @@ def _tri_split_cmd(input_path: Path, output_path: Path, subtitle_path: Path | No
     return [
         "ffmpeg", "-y", "-i", str(input_path),
         "-filter_complex", filters,
+        "-af", "asetpts=PTS-STARTPTS,aresample=async=1000",
         "-map", map_video, "-map", "0:a?",
         "-c:v", "libx264", "-preset", "faster", "-crf", "21",
         "-maxrate", "8M", "-bufsize", "16M",
@@ -186,7 +190,7 @@ async def loudnorm(input_path: Path, output_path: Path) -> bool:
     """
     cmd = [
         "ffmpeg", "-y", "-i", str(input_path),
-        "-af", "acompressor=threshold=-12dB:ratio=3:attack=5:release=50,loudnorm=I=-14:TP=-1.5:LRA=11",
+        "-af", "acompressor=threshold=-12dB:ratio=3:attack=5:release=50,loudnorm=I=-14:TP=-1.5:LRA=11,aresample=async=1000",
         "-c:v", "copy",
         "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
         str(output_path),

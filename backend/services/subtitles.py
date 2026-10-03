@@ -99,12 +99,20 @@ def build_ass_from_segments(segments: list[dict], clip_start_offset: float = 0.0
             for chunk in word_chunks:
                 if not chunk:
                     continue
+                chunk_len = len(chunk)
                 for i, word_obj in enumerate(chunk):
                     w_start = word_obj["start"] - clip_start_offset
-                    w_end = word_obj["end"] - clip_start_offset
+                    raw_end = word_obj["end"] - clip_start_offset
 
                     if w_start < 0:
                         continue
+
+                    # Bridge tiny gaps within chunk to eliminate visual flicker
+                    if i + 1 < chunk_len:
+                        next_w_start = chunk[i + 1]["start"] - clip_start_offset
+                        w_end = next_w_start if (next_w_start > raw_end and next_w_start - raw_end < 0.4) else raw_end
+                    else:
+                        w_end = raw_end
 
                     line_parts = []
                     for j, w in enumerate(chunk):
@@ -186,7 +194,7 @@ async def generate_subtitle(
                 str(audio_path),
                 language=lang,
                 word_timestamps=True,
-                vad_filter=True,
+                vad_filter=False,
                 hallucination_silence_threshold=2.0,
             )
             result = []
