@@ -23,13 +23,22 @@ venv/
 *.egg-info/
 dist/
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # Node / Frontend
 node_modules/
+apps/**/node_modules/
+apps/**/dist/
+apps/**/.vite/
 frontend/dist/
 frontend/.vite/
 frontend/.cache/
 *.tsbuildinfo
+
+# Eval reports
+eval/reports/*
+!eval/reports/.gitkeep
 
 # OS
 .DS_Store

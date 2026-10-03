@@ -1,0 +1,76 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "clipforge-api"
+version = "2.0.0"
+description = "ClipForge v2 Backend API: Signal-First, LLM-Last Gaming Video Clipper"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "pydantic>=2.8.0",
+    "pydantic-settings>=2.5.0",
+    "aiosqlite>=0.20.0",
+    "httpx>=0.27.0",
+    "structlog>=24.1.0",
+    "numpy>=1.26.0",
+    "scipy>=1.12.0",
+    "yt-dlp>=2025.1.1",
+    "faster-whisper>=1.0.3",
+    "pillow>=10.2.0",
+    "python-multipart>=0.0.9",
+    "aiofiles>=24.1.0",
+    "openai>=1.51.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "hypothesis>=6.98.0",
+    "ruff>=0.5.0",
+    "mypy>=1.10.0",
+    "types-aiofiles>=24.1.0",
+    "types-Pillow>=10.2.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/clipforge"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "C4", "UP"]
+ignore = ["E501", "B008"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "yt_dlp.*",
+    "faster_whisper.*",
+    "scipy.*",
+    "structlog.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "unit: Pure unit tests",
+    "integration: Integration tests (DB, API, Job engine)",
+    "media: Media tests requiring FFmpeg",
+    "network: Tests requiring external network access",
+    "slow: Slow running tests",
+]
