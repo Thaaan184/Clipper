@@ -52,11 +52,9 @@ def _download_clip_range(url: str, start: float, end: float, output_path: Path) 
         "quiet": True,
         "no_warnings": True,
         "no_playlist": True,
-        "merge_output_format": "mp4",
         "download_ranges": yt_dlp.utils.download_range_func([], [[start, end]]),
-        "force_keyframes_at_cuts": True,
+        "force_keyframes_at_cuts": False,
         "remote_components": ["ejs:github"],
-        "extractor_args": {"youtube": {"player_client": ["android", "web"]}},
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
