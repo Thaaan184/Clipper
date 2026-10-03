@@ -329,7 +329,7 @@ async def list_projects():
     return [dict(v) for v in videos]
 
 
-@app.get("/api/clips/{clip_id}/download")
+@app.api_route("/api/clips/{clip_id}/download", methods=["GET", "HEAD"])
 async def download_clip(clip_id: str):
     async with aiosqlite.connect(str(settings.db_path)) as db:
         db.row_factory = aiosqlite.Row
@@ -354,7 +354,7 @@ async def download_clip(clip_id: str):
     )
 
 
-@app.get("/api/clips/{clip_id}/preview")
+@app.api_route("/api/clips/{clip_id}/preview", methods=["GET", "HEAD"])
 async def preview_clip(clip_id: str):
     """Stream video for inline browser playback."""
     async with aiosqlite.connect(str(settings.db_path)) as db:
