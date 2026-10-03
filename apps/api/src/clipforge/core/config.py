@@ -1,8 +1,9 @@
 """ClipForge v2 configuration."""
 
 from pathlib import Path
+from typing import Any
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,6 +26,23 @@ class Settings(BaseSettings):
         default=["youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"],
         description="Allowed media source hostnames",
     )
+
+    @field_validator("allowed_hosts", "cors_origins", mode="before")
+    @classmethod
+    def parse_str_list(cls, v: Any) -> list[str]:
+        if isinstance(v, str):
+            v = v.strip()
+            if v.startswith("[") and v.endswith("]"):
+                import json
+
+                try:
+                    parsed = json.loads(v)
+                    if isinstance(parsed, list):
+                        return [str(item) for item in parsed]
+                except Exception:
+                    pass
+            return [part.strip() for part in v.split(",") if part.strip()]
+        return v
     max_vod_seconds: int = Field(
         default=28800, description="Maximum VOD length in seconds (8 hours)"
     )
