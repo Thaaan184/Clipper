@@ -110,11 +110,13 @@ async def scan(req: ScanRequest, request: Request):
     now = datetime.utcnow().isoformat()
     async with aiosqlite.connect(str(settings.db_path)) as db:
         db.row_factory = aiosqlite.Row
-        # Check pending jobs count
-        row = await db.execute_fetchall("SELECT COUNT(*) as c FROM jobs WHERE status IN ('pending','running')")
+        # Check active scan jobs count (ignore stale jobs older than 10 minutes)
+        row = await db.execute_fetchall(
+            "SELECT COUNT(*) as c FROM jobs WHERE job_type = 'scan' AND status IN ('pending','running') AND updated_at > datetime('now', '-10 minutes')"
+        )
         pending_count = row[0]["c"] if row else 0
         if pending_count >= settings.max_pending_jobs:
-            raise HTTPException(503, "Server sibuk, coba beberapa menit lagi")
+            raise HTTPException(503, "Server sedang memproses antrean video lain. Coba beberapa menit lagi.")
 
         await db.execute(
             "INSERT INTO videos (id, url, status, created_at, updated_at) VALUES (?,?,?,?,?)",

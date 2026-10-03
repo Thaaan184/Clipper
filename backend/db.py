@@ -78,6 +78,17 @@ async def init_db():
                 await db.execute(f"ALTER TABLE clips ADD COLUMN {col} {ctype}")
             except Exception:
                 pass
+
+        # Clean up stale/orphaned jobs from prior container runs
+        await db.execute(
+            "UPDATE jobs SET status = 'error', error_msg = 'Terhenti saat server restart' WHERE status IN ('pending', 'running')"
+        )
+        await db.execute(
+            "UPDATE clips SET status = 'error', error_msg = 'Terhenti saat server restart' WHERE status IN ('pending', 'rendering')"
+        )
+        await db.execute(
+            "UPDATE videos SET status = 'error' WHERE status = 'pending'"
+        )
         await db.commit()
 
 
