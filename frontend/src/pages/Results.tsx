@@ -19,6 +19,7 @@ export default function Results() {
   const [showRescan, setShowRescan] = useState(false)
   const [rescanCount, setRescanCount] = useState(5)
   const [rescanDur, setRescanDur] = useState("30-60")
+  const [rescanContentType, setRescanContentType] = useState("auto")
   const [rescanLayout, setRescanLayout] = useState("blur")
   const [rescanLang, setRescanLang] = useState("id")
   const [rescanning, setRescanning] = useState(false)
@@ -58,6 +59,7 @@ export default function Results() {
       const res = await rescanVideo(videoId, {
         clip_count: rescanCount,
         duration_target: rescanDur,
+        content_type: rescanContentType,
         layout: rescanLayout,
         subtitle_lang: rescanLang,
       })
@@ -184,6 +186,24 @@ export default function Results() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 16 }}>
             <div>
               <label style={{ fontSize: 11, color: "#9A9A9A", display: "block", marginBottom: 4 }}>
+                Fokus Konten
+              </label>
+              <select
+                value={rescanContentType}
+                onChange={(e) => setRescanContentType(e.target.value)}
+                style={{ width: "100%", background: "#0A0A0A", border: "1px solid #2A2A2A", color: "#F5F5F5", padding: "8px", fontSize: 12 }}
+              >
+                <option value="auto">Auto Detect</option>
+                <option value="gaming">🎮 Gaming & Stream</option>
+                <option value="podcast">🎙️ Podcast & Talk</option>
+                <option value="education">📚 Edukasi & Tech</option>
+                <option value="comedy">😂 Komedi & Santai</option>
+                <option value="motivation">🔥 Motivasi & Cerita</option>
+              </select>
+            </div>
+
+            <div>
+              <label style={{ fontSize: 11, color: "#9A9A9A", display: "block", marginBottom: 4 }}>
                 Target Durasi
               </label>
               <select
@@ -238,6 +258,7 @@ export default function Results() {
               >
                 <option value="id">Indonesia</option>
                 <option value="en">English</option>
+                <option value="none">Tanpa Subtitle (No Subtitle)</option>
               </select>
             </div>
           </div>

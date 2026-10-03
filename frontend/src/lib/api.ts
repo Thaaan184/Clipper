@@ -4,6 +4,7 @@ export interface ScanRequest {
   url: string
   clip_count: number
   duration_target: string
+  content_type?: string
   subtitle_lang: string
   layout: string
 }
@@ -82,6 +83,7 @@ export async function getProjects(): Promise<Project[]> {
 export interface RescanParams {
   clip_count?: number
   duration_target?: string
+  content_type?: string
   subtitle_lang?: string
   layout?: string
 }

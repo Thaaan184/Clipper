@@ -13,37 +13,59 @@ client = AsyncOpenAI(
     api_key=settings.llm_api_key,
 )
 
-SCOUT_SYSTEM_PROMPT = """Kamu adalah video clip scout profesional. Analisis transkrip video berikut dan temukan momen terbaik untuk dijadikan short-form video vertikal (konten game, podcast, tutorial, atau umum).
+SCOUT_BASE_PROMPT = """Kamu adalah video clip scout profesional untuk short-form vertikal (TikTok, Reels, YouTube Shorts).
+Analisis transkrip dan metadata audio berikut, lalu temukan momen-momen paling potensial untuk viral.
 
-Kriteria scoring (0–100):
-- Hook strength (0–25): 5 detik pertama apakah langsung menarik / bikin penasaran?
-- Content density (0–25): Padat tanpa filler / jeda panjang?
-- Standalone value (0–25): Bisa dipahami tanpa konteks video penuh?
-- Viral potential (0–25): Orang akan share / save / komentar?
+Kriteria penilaian (skor 0–100):
+1. Hook Strength (0–25): Apakah 3–5 detik pertama langsung memancing rasa penasaran / atensi tinggi?
+2. Content Density (0–25): Apakah padat dan bebas filler / jeda hampa?
+3. Standalone Value (0–25): Apakah penonton langsung paham tanpa menonton video utuh?
+4. Viral / Share Potential (0–25): Apakah memicu dorongan komentar, share ke teman, atau save?
 
-Prioritas konten GAME:
-- Momen reaksi keras (teriakan, tawa, shock)
-- Clutch play / epic fail / plot twist
-- Tutorial singkat yang self-contained
-- Momen lucu / unexpected
+Output WAJIB berupa JSON array saja (tanpa markdown wrap atau teks pendahuluan):
+[
+  {
+    "start_time": <detik float, contoh: 120.5>,
+    "end_time": <detik float>,
+    "hook_title": "<judul hook ≤10 kata bahasa Indonesia>",
+    "score": <integer 0-100>,
+    "reason": "<1 kalimat alasan momen ini viral>",
+    "caption": "<caption media sosial catchy, ≤150 karakter>",
+    "hashtags": ["#tag1", "#tag2", "#tag3"],
+    "content_type": "<gaming|reaction|clutch|podcast|tutorial|comedy|motivation>"
+  }
+]"""
 
-Prioritas konten PODCAST / TALK:
-- Pernyataan kontroversial atau mengejutkan
-- Insight dense yang berdiri sendiri
-- Momen emosional atau personal
+CONTENT_TYPE_GUIDES = {
+    "gaming": """TIPE FOKUS: GAMING & STREAMING
+- Prioritas Utama: Reaksi vokal keras (teriakan kaget, tawa ngakak, rage quit, selebrasi kemenangan) dan aksi clutch/blunder.
+- Manfaatkan data AUDIO ENERGY SPIKES di bawah untuk menandai detik-detik teriakan/hype streamer!
+- Timing klip: Mulai 3–5 detik sebelum aksi/kill/blunder agar ada build-up tensi, tahan sampai reaksi streamer reda.
+- Hook Title: Format khas gaming TikTok/Reels (misal: "Duelist Beban", "Detik-detik Kena Jumpscare", "1 HP Clutch Mustahil", "Rage Quit Terkonyol").""",
 
-Output WAJIB: JSON array saja, tanpa teks lain sebelum atau sesudah.
-Setiap item:
-{
-  "start_time": <detik float, contoh: 842.5>,
-  "end_time": <detik float>,
-  "hook_title": "<judul hook ≤10 kata bahasa Indonesia>",
-  "score": <integer 0-100>,
-  "reason": "<1 kalimat kenapa momen ini bagus>",
-  "caption": "<caption media sosial, ≤150 karakter>",
-  "hashtags": ["#tag1", "#tag2", "#tag3"],
-  "content_type": "<reaction|clutch|tutorial|funny|insight|emotional|controversy>"
-}"""
+    "podcast": """TIPE FOKUS: PODCAST & TALKSHOW
+- Prioritas Utama: Contrarian statement / hot take yang menantang opini umum di 3 detik pertama.
+- Insight atau rahasia yang aplikatif dan berdiri sendiri (self-contained).
+- Cerita personal atau debat tajam yang memancing emosi dan diskusi di kolom komentar.
+- Timing klip: Selesaikan satu ide atau premis argumen secara tuntas tanpa terpotong di tengah nafas.""",
+
+    "education": """TIPE FOKUS: EDUKASI, TUTORIAL & TECH
+- Prioritas Utama: Hook berbasis masalah ("Capek ngerjain X manual?", "Trik rahasia yang jarang orang tahu...").
+- Langkah konkret atau tool rekomendasi yang langsung bisa ditiru.
+- Hilangkan intro basa-basi, langsung ke poin solusi.""",
+
+    "comedy": """TIPE FOKUS: KOMEDI & HIBURAN
+- Prioritas Utama: Punchline timing, celetukan spontan, roasting, reaksi absurd atau awkward.
+- Setup singkat yang langsung disambar punchline tak terduga.""",
+
+    "motivation": """TIPE FOKUS: MOTIVASI & CERITA INSPIRATIF
+- Prioritas Utama: Pembuka emosional yang menyentuh ("Waktu gue di titik terendah...", "Jangan pernah menyerah kalau...").
+- Momen titik balik perjuangan dan kalimat pamungkas yang layak di-save penonton.""",
+
+    "auto": """TIPE FOKUS: DETEKSI OTOMATIS
+- Analisis transkrip dan audio spike untuk mengenali jenis konten (Gaming, Podcast, Edukasi, dsb.) secara dinamis.
+- Sesuaikan standar klip terbaik sesuai genre yang paling dominan."""
+}
 
 
 async def scout_moments(
@@ -52,8 +74,9 @@ async def scout_moments(
     duration_target: str,
     clip_count: int,
     video_duration: int,
+    content_type: str = "auto",
 ) -> list[dict]:
-    """Call LLM to find best moments in transcript."""
+    """Call LLM to find best moments in transcript based on content type."""
 
     # Build duration guidance
     dur_map = {
@@ -78,13 +101,16 @@ TRANSKRIP (format: [detik_mulai] teks):
 
 Temukan tepat {clip_count} momen terbaik. Output JSON array saja."""
 
-    logger.info("Calling LLM scout, transcript length: %d chars", len(transcript_text))
+    guide = CONTENT_TYPE_GUIDES.get(content_type, CONTENT_TYPE_GUIDES["auto"])
+    system_prompt = f"{SCOUT_BASE_PROMPT}\n\n{guide}"
+
+    logger.info("Calling LLM scout [type: %s], transcript length: %d chars", content_type, len(transcript_text))
 
     try:
         response = await client.chat.completions.create(
             model=settings.llm_model,
             messages=[
-                {"role": "system", "content": SCOUT_SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},
             ],
             temperature=0.3,

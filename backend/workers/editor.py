@@ -113,19 +113,22 @@ async def render_clip(
 
         raw_path = downloaded_raw
 
-        await emit(40, "Download selesai, generate subtitle...")
-
         # Step 2: Generate subtitle (from raw audio)
-        sub_ok = await generate_subtitle(raw_path, sub_path, clip_start_offset=0.0, lang=subtitle_lang)
-
-        await emit(60, f"Subtitle OK, reframe ke 9:16 [{layout}]...")
+        sub_ok = False
+        if subtitle_lang and subtitle_lang.lower() != "none":
+            await emit(40, "Download selesai, generate subtitle...")
+            sub_ok = await generate_subtitle(raw_path, sub_path, clip_start_offset=0.0, lang=subtitle_lang)
+            await emit(60, f"Subtitle OK, reframe ke 9:16 [{layout}]...")
+        else:
+            await emit(40, "Download selesai, lewati subtitle (mode tanpa subtitle)...")
+            await emit(60, f"Reframe ke 9:16 [{layout}] tanpa subtitle...")
 
         # Step 3: Reframe
         reframe_ok = await reframe(
             input_path=raw_path,
             output_path=pre_norm_path,
             layout=layout,
-            subtitle_path=sub_path if sub_ok else None,
+            subtitle_path=sub_path if (sub_ok and subtitle_lang and subtitle_lang.lower() != "none") else None,
         )
 
         if not reframe_ok:

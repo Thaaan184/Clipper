@@ -10,6 +10,15 @@ const COUNT_OPTS = [3, 5, 8]
 const LANG_OPTS = [
   { label: "Indonesia", val: "id" },
   { label: "English", val: "en" },
+  { label: "Tanpa Subtitle", val: "none" },
+]
+const CONTENT_TYPE_OPTS = [
+  { label: "Auto Detect", val: "auto" },
+  { label: "🎮 Gaming & Stream", val: "gaming" },
+  { label: "🎙️ Podcast & Talk", val: "podcast" },
+  { label: "📚 Edukasi & Tech", val: "education" },
+  { label: "😂 Komedi & Santai", val: "comedy" },
+  { label: "🔥 Motivasi & Cerita", val: "motivation" },
 ]
 const LAYOUT_OPTS = [
   { label: "Blur BG", val: "blur" },
@@ -22,6 +31,7 @@ export default function Home() {
   const [url, setUrl] = useState("")
   const [clipCount, setClipCount] = useState(5)
   const [durIdx, setDurIdx] = useState(1) // "30-60"
+  const [contentType, setContentType] = useState("auto")
   const [lang, setLang] = useState("id")
   const [layout, setLayout] = useState("blur")
   const [loading, setLoading] = useState(false)
@@ -60,6 +70,7 @@ export default function Home() {
         url: clean,
         clip_count: clipCount,
         duration_target: DURATION_VALS[durIdx],
+        content_type: contentType,
         subtitle_lang: lang,
         layout,
       })
@@ -151,7 +162,39 @@ export default function Home() {
             </div>
           )}
 
-          {/* Options */}
+          {/* Jenis Konten Scope */}
+          <div style={{ marginTop: 20 }}>
+            <div style={{ color: "#9A9A9A", fontSize: 11, fontWeight: 600, letterSpacing: "0.12em", marginBottom: 8 }}>
+              KATEGORI & FOKUS KONTEN
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {CONTENT_TYPE_OPTS.map((ct) => (
+                <button
+                  key={ct.val}
+                  type="button"
+                  onClick={() => {
+                    setContentType(ct.val)
+                    if (ct.val === "gaming" && layout === "center") setLayout("blur")
+                  }}
+                  style={{
+                    background: contentType === ct.val ? "#FF6A00" : "#1A1A1A",
+                    color: contentType === ct.val ? "#000000" : "#E0E0E0",
+                    border: `1px solid ${contentType === ct.val ? "#FF6A00" : "#2A2A2A"}`,
+                    padding: "8px 14px",
+                    borderRadius: 2,
+                    fontSize: 12,
+                    fontWeight: contentType === ct.val ? 700 : 500,
+                    cursor: "pointer",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  {ct.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Options row */}
           <div
             style={{
               display: "flex",

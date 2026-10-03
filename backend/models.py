@@ -7,7 +7,8 @@ class ScanRequest(BaseModel):
     url: str
     clip_count: int = 5
     duration_target: str = "30-60"  # "15-30" | "30-60" | "60-90"
-    subtitle_lang: str = "id"       # "id" | "en"
+    content_type: str = "auto"      # "auto" | "gaming" | "podcast" | "education" | "comedy" | "motivation"
+    subtitle_lang: str = "id"       # "id" | "en" | "none"
     layout: str = "blur"            # "blur" | "center" | "stacked"
 
     @field_validator("url")
@@ -83,13 +84,14 @@ class VideoInfo(BaseModel):
 class RescanRequest(BaseModel):
     clip_count: int = 5
     duration_target: str = "30-60"
+    content_type: str = "auto"
     subtitle_lang: str = "id"
     layout: str = "blur"
 
 
 class RenderRequest(BaseModel):
-    layout: str = "blur"
-    subtitle_lang: str = "id"
+    layout: Optional[str] = "blur"
+    subtitle_lang: Optional[str] = "id"
     start_time: Optional[float] = None
     end_time: Optional[float] = None
     hook_title: Optional[str] = None

@@ -36,6 +36,7 @@ async def run_scout(
     layout: str,
     progress_queue: asyncio.Queue,
     db_path: str,
+    content_type: str = "auto",
 ) -> list[str]:
     """
     Phase 2: Scout moments via LLM, write clip records.
@@ -53,7 +54,7 @@ async def run_scout(
         await _update_job(db_path, job_id, phase="scout", progress=progress, message=message, status="running")
 
     try:
-        await emit(5, "AI sedang menganalisis transkrip...")
+        await emit(5, f"AI sedang menganalisis transkrip ({content_type})...")
 
         moments = await scout_moments(
             transcript_text=transcript_text,
@@ -61,6 +62,7 @@ async def run_scout(
             duration_target=duration_target,
             clip_count=clip_count,
             video_duration=video_duration,
+            content_type=content_type,
         )
 
         if not moments:

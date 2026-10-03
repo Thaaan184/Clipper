@@ -431,6 +431,7 @@ export default function ClipCard({ clip, onToast, onRetry }: ClipCardProps) {
                 >
                   <option value="id">Indonesia</option>
                   <option value="en">English</option>
+                  <option value="none">Tanpa Subtitle</option>
                 </select>
               </div>
             </div>
