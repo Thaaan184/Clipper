@@ -11,6 +11,7 @@ services:
       - .env
     volumes:
       - clipforge-data:/app/data
+      - ./backend:/app/backend
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/docs"]
       interval: 30s
