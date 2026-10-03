@@ -2,17 +2,24 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
 
 
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=(BASE_DIR / ".env", Path(".env")),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     # LLM
     llm_api_base: str = "http://100.96.207.8:20128/v1"
-    llm_api_key: str = "sk-ec8b765ea71ee2fe-gblh28-e9935933"
+    llm_api_key: str = ""
     llm_model: str = "ag/gemini-3.8-flash-medium"
 
     # App
     port: int = 8080
-    data_dir: Path = Path("./data")
+    data_dir: Path = BASE_DIR / "data"
     max_video_duration: int = 10800  # 3 hours
     max_concurrent_renders: int = 3
     max_pending_jobs: int = 5
@@ -23,10 +30,10 @@ class Settings(BaseSettings):
     whisper_device: str = "cpu"
 
     # CORS
-    cors_origins: str = "http://localhost:5173,http://localhost:8080"
+    cors_origins: str = "http://localhost:5173,http://localhost:8080,http://100.96.207.8:8080"
 
     # Rate limit
-    rate_limit_scans_per_hour: int = 5
+    rate_limit_scans_per_hour: int = 20
 
     @property
     def cors_origins_list(self) -> list[str]:

@@ -324,10 +324,18 @@ async def delete_video(video_id: str):
     return {"deleted": video_id}
 
 
-# ── Serve frontend static files ───────────────────────────────────────────────
+# ── Serve frontend static files with SPA fallback ────────────────────────────
 frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
 if frontend_dist.exists():
-    app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
+    if (frontend_dist / "assets").exists():
+        app.mount("/assets", StaticFiles(directory=str(frontend_dist / "assets")), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        file_path = frontend_dist / full_path
+        if file_path.is_file():
+            return FileResponse(file_path)
+        return FileResponse(frontend_dist / "index.html")
 
 
 if __name__ == "__main__":
