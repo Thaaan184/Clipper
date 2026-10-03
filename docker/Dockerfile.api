@@ -13,8 +13,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libass-dev \
     fonts-dejavu-core \
+    fonts-liberation \
     curl \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Deno runtime for yt-dlp 1080p stream extraction
+ENV DENO_INSTALL="/usr/local"
+RUN curl -fsSL https://deno.land/install.sh | sh -s -- -y --install-dir /usr/local/bin
 
 WORKDIR /app
 
@@ -31,9 +37,10 @@ RUN pip install --upgrade pip && \
     pip install "fastapi>=0.115.0" "uvicorn[standard]>=0.30.0" "pydantic>=2.8.0" "pydantic-settings>=2.5.0" \
                 "aiosqlite>=0.20.0" "httpx>=0.27.0" "structlog>=24.1.0" "numpy>=1.26.0" "scipy>=1.12.0" \
                 "yt-dlp>=2025.1.1" "faster-whisper>=1.0.3" "pillow>=10.2.0" "python-multipart>=0.0.9" \
-                "aiofiles>=24.1.0" "openai>=1.51.0"
+                "aiofiles>=24.1.0" "openai>=1.51.0" "pyyaml>=6.0.1"
 
-# Copy API application source
+# Copy API application assets and source
+COPY apps/api/assets/ /app/apps/api/assets/
 COPY apps/api/src/ /app/apps/api/src/
 RUN pip install -e /app/apps/api --no-deps
 
