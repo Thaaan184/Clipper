@@ -19,8 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Deno runtime for yt-dlp 1080p stream extraction
-ENV DENO_INSTALL="/usr/local"
-RUN curl -fsSL https://deno.land/install.sh | sh -s -- -y --install-dir /usr/local/bin
+COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
 
 WORKDIR /app
 
