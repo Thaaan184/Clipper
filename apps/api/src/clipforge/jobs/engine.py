@@ -76,10 +76,13 @@ class JobEngine:
             return True
 
         # Transition job state
+        target_status = (
+            JobStatus.RENDERING if stage == StageName.RENDER_CLIPS else JobStatus.RUNNING
+        )
         await transition_job_status(
             db=db,
             job_id=job_id,
-            new_status=JobStatus.RUNNING,
+            new_status=target_status,
             stage=stage.value,
             progress=progress,
         )

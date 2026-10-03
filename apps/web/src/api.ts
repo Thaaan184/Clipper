@@ -93,7 +93,8 @@ export async function triggerRender(
     method: "POST",
   });
   if (!res.ok) {
-    throw new Error(`Failed to trigger render for job ${jobId}`);
+    const err = await res.json().catch(() => ({ detail: "Failed to trigger render" }));
+    throw new Error(err.detail || `Failed to trigger render for job ${jobId}`);
   }
   return res.json();
 }

@@ -19,15 +19,27 @@ VALID_TRANSITIONS: dict[JobStatus, set[JobStatus]] = {
         JobStatus.FAILED,
         JobStatus.CANCELLED,
     },
-    JobStatus.AWAITING_REVIEW: {JobStatus.RENDERING, JobStatus.CANCELLED},
+    JobStatus.AWAITING_REVIEW: {
+        JobStatus.AWAITING_REVIEW,
+        JobStatus.RENDERING,
+        JobStatus.RUNNING,
+        JobStatus.CANCELLED,
+    },
     JobStatus.RENDERING: {
         JobStatus.RENDERING,
+        JobStatus.RUNNING,
         JobStatus.DONE,
         JobStatus.FAILED,
         JobStatus.CANCELLED,
     },
-    JobStatus.DONE: set(),
-    JobStatus.FAILED: set(),
+    JobStatus.DONE: {
+        JobStatus.RENDERING,
+        JobStatus.RUNNING,
+    },
+    JobStatus.FAILED: {
+        JobStatus.RENDERING,
+        JobStatus.RUNNING,
+    },
     JobStatus.CANCELLED: set(),
 }
 
