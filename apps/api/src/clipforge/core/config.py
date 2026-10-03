@@ -19,15 +19,15 @@ class Settings(BaseSettings):
     bind: str = Field(default="127.0.0.1", description="Listen address")
     port: int = Field(default=8000, description="Listen port")
     api_token: str | None = Field(default=None, description="Optional Bearer token")
-    cors_origins: list[str] = Field(
+    cors_origins: list[str] | str = Field(
         default=["http://localhost:5173"], description="Allowed CORS origins"
     )
-    allowed_hosts: list[str] = Field(
+    allowed_hosts: list[str] | str = Field(
         default=["youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"],
         description="Allowed media source hostnames",
     )
 
-    @field_validator("allowed_hosts", "cors_origins", mode="before")
+    @field_validator("allowed_hosts", "cors_origins", mode="after")
     @classmethod
     def parse_str_list(cls, v: Any) -> list[str]:
         if isinstance(v, str):
@@ -42,7 +42,9 @@ class Settings(BaseSettings):
                 except Exception:
                     pass
             return [part.strip() for part in v.split(",") if part.strip()]
-        return v
+        if isinstance(v, list):
+            return [str(item) for item in v]
+        return []
     max_vod_seconds: int = Field(
         default=28800, description="Maximum VOD length in seconds (8 hours)"
     )
