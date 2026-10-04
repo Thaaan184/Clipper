@@ -167,6 +167,8 @@ async def download_video_range(
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
     duration = max(1.0, end_s - start_s)
+    target_start = max(0.0, start_s - pad_s)
+    target_dur = duration + (pad_s * 2.0)
 
     # Local file or test source
     if not source_url.startswith("http"):
@@ -201,8 +203,130 @@ async def download_video_range(
         return out_path
 
     temp_pad = out_path.parent / f"pad_{out_path.name}"
+    temp_pad.unlink(missing_ok=True)
+
+    loop = asyncio.get_running_loop()
+
+    # Strategy 1: Direct HTTP range seek with FFmpeg (Fastest & avoids HLS format 616/DASH EOF bugs)
+    ydl_opts_meta: dict[str, Any] = {
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
+    }
+    if cookies_path and cookies_path.exists():
+        ydl_opts_meta["cookiefile"] = str(cookies_path)
+
+    def _get_direct_streams() -> tuple[str | None, str | None]:
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts_meta) as ydl:  # type: ignore[arg-type]
+                info = ydl.extract_info(source_url, download=False) or {}
+                formats: list[dict[str, Any]] = info.get("formats") or []
+
+                # Filter video formats: protocol http/https, exclude m3u8 and premium
+                v_fmts = [
+                    f
+                    for f in formats
+                    if f.get("vcodec") != "none"
+                    and f.get("acodec") == "none"
+                    and f.get("protocol") in ("https", "http")
+                    and (f.get("height") or 0) <= 1080
+                    and "m3u8" not in (f.get("protocol") or "")
+                    and "premium" not in (f.get("format_note") or "").lower()
+                ]
+                # Prioritize avc1 / h264 for fast hardware/software decode
+                avc1_fmts = [f for f in v_fmts if "avc1" in (f.get("vcodec") or "")]
+                best_v = avc1_fmts[-1] if avc1_fmts else (v_fmts[-1] if v_fmts else None)
+
+                # Filter audio formats: protocol http/https, exclude m3u8
+                a_fmts = [
+                    f
+                    for f in formats
+                    if f.get("acodec") != "none"
+                    and f.get("vcodec") == "none"
+                    and f.get("protocol") in ("https", "http")
+                    and "m3u8" not in (f.get("protocol") or "")
+                ]
+                m4a_fmts = [f for f in a_fmts if "mp4a" in (f.get("acodec") or "")]
+                best_a = m4a_fmts[-1] if m4a_fmts else (a_fmts[-1] if a_fmts else None)
+
+                v_url = best_v.get("url") if best_v else None
+                a_url = best_a.get("url") if best_a else None
+                return v_url, a_url
+        except Exception as e:
+            logger.warning("direct_stream_probe_failed", error=str(e))
+            return None, None
+
+    v_stream_url, a_stream_url = await loop.run_in_executor(None, _get_direct_streams)
+
+    if v_stream_url and a_stream_url:
+        ffmpeg_cmd = [
+            "ffmpeg",
+            "-y",
+            "-ss",
+            f"{target_start:.3f}",
+            "-t",
+            f"{target_dur:.3f}",
+            "-i",
+            v_stream_url,
+            "-ss",
+            f"{target_start:.3f}",
+            "-t",
+            f"{target_dur:.3f}",
+            "-i",
+            a_stream_url,
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-c:a",
+            "aac",
+            "-pix_fmt",
+            "yuv420p",
+            "-loglevel",
+            "error",
+            str(temp_pad),
+        ]
+        proc = await loop.run_in_executor(
+            None, lambda: subprocess.run(ffmpeg_cmd, capture_output=True)
+        )
+        if proc.returncode == 0 and temp_pad.exists() and temp_pad.stat().st_size > 1000:
+            # Perform exact cut
+            trim_offset = max(0.0, start_s - target_start)
+            trim_cmd = [
+                "ffmpeg",
+                "-y",
+                "-ss",
+                f"{trim_offset:.3f}",
+                "-t",
+                f"{duration:.3f}",
+                "-i",
+                str(temp_pad),
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-c:a",
+                "aac",
+                "-pix_fmt",
+                "yuv420p",
+                "-loglevel",
+                "error",
+                str(out_path),
+            ]
+            trim_proc = await loop.run_in_executor(
+                None, lambda: subprocess.run(trim_cmd, capture_output=True)
+            )
+            temp_pad.unlink(missing_ok=True)
+            if trim_proc.returncode == 0 and out_path.exists() and out_path.stat().st_size > 1000:
+                return out_path
+
+    # Strategy 2: Strict yt-dlp Range Download (Excluding m3u8 and premium)
     ydl_opts: dict[str, Any] = {
-        "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
+        "format": "bestvideo[height<=1080][protocol^=http]+bestaudio[protocol^=http]/best[height<=1080][protocol^=http]/best[height<=1080]/best",
         "outtmpl": str(temp_pad),
         "noplaylist": True,
         "quiet": True,
@@ -238,7 +362,10 @@ async def download_video_range(
                 calc_offset = max(0.0, start_s - ((min_s_idx or 0) * frag_dur))
                 return calc_offset
             else:
-                def range_callback(info_dict: dict[str, Any], ydl_inst: Any) -> list[dict[str, Any]]:
+
+                def range_callback(
+                    info_dict: dict[str, Any], ydl_inst: Any
+                ) -> list[dict[str, Any]]:
                     return [
                         {
                             "start_time": max(0.0, start_s - pad_s),
@@ -251,13 +378,16 @@ async def download_video_range(
                 ydl.process_ie_result(info, download=True)
                 return max(0.0, min(pad_s, start_s))
 
-    loop = asyncio.get_running_loop()
     actual_offset = await loop.run_in_executor(None, _sync_download)
 
     # Now trim the exact segment from padded video
-    padded_candidates = list(out_path.parent.glob(f"pad_{out_path.stem}*"))
+    padded_candidates = [
+        p
+        for p in out_path.parent.glob(f"pad_{out_path.stem}*")
+        if p.is_file() and p.stat().st_size > 1000
+    ]
     if not padded_candidates:
-        raise FileNotFoundError("Padded download file not found")
+        raise FileNotFoundError(f"Padded download file not found for {out_path.name}")
 
     padded_file = padded_candidates[0]
 
@@ -272,6 +402,8 @@ async def download_video_range(
         str(padded_file),
         "-c:v",
         "libx264",
+        "-preset",
+        "veryfast",
         "-c:a",
         "aac",
         "-pix_fmt",
@@ -280,13 +412,16 @@ async def download_video_range(
         "error",
         str(out_path),
     ]
-    proc = subprocess.run(trim_cmd, capture_output=True)
+    proc = await loop.run_in_executor(None, lambda: subprocess.run(trim_cmd, capture_output=True))
     padded_file.unlink(missing_ok=True)
 
     if proc.returncode != 0:
         raise RuntimeError(
             f"Exact range trim failed: {proc.stderr.decode('utf-8', errors='replace')}"
         )
+
+    if not out_path.exists() or out_path.stat().st_size < 1000:
+        raise RuntimeError(f"Output clip file empty or missing after trim: {out_path}")
 
     return out_path
 

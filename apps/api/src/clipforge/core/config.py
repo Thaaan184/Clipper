@@ -45,6 +45,7 @@ class Settings(BaseSettings):
         if isinstance(v, list):
             return [str(item) for item in v]
         return []
+
     max_vod_seconds: int = Field(
         default=28800, description="Maximum VOD length in seconds (8 hours)"
     )

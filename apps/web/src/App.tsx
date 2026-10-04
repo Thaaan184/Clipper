@@ -34,9 +34,11 @@ import {
   TimelineData,
 } from "./types";
 import {
+  AlertTriangle,
   ArrowRight,
   Award,
   CheckCircle,
+  Clock,
   Download,
   Edit3,
   Film,
@@ -442,7 +444,9 @@ export default function App(): JSX.Element {
     if (!currentJob) return;
     setIsRendering(true);
     try {
-      await triggerRender(currentJob.id);
+      const kept = candidates.filter((c) => c.status === "kept");
+      const candIds = kept.length > 0 ? kept.map((c) => c.id) : undefined;
+      await triggerRender(currentJob.id, { candidate_ids: candIds });
       setCurrentJob({
         ...currentJob,
         status: "rendering",
@@ -450,7 +454,7 @@ export default function App(): JSX.Element {
         error_code: null,
         error_message: null,
       });
-      showToast("Batch render 9:16 dimulai untuk kandidat lolos kurasi!");
+      showToast("Batch render 9:16 dimulai untuk kandidat terpilih!");
     } catch (err: any) {
       showToast(`Gagal trigger render: ${err.message || err}`);
     } finally {
@@ -771,6 +775,30 @@ export default function App(): JSX.Element {
                 {/* Candidates Review */}
                 {candidates.length > 0 && (
                   <div className="flex flex-col gap-4">
+                    {/* Rendering in progress banner */}
+                    {currentJob.status === "rendering" && (
+                      <div className="flex items-center justify-between p-4 bg-action/10 border border-action/40 flex-wrap gap-3">
+                        <div className="flex items-center gap-3">
+                          <Film className="w-5 h-5 text-action animate-spin" />
+                          <div>
+                            <div className="text-xs font-bold text-copy uppercase tracking-wider">
+                              Render Klip 9:16 Sedang Berjalan ({Math.round((currentJob.progress || 0.8) * 100)}%)
+                            </div>
+                            <div className="text-[11px] text-muted">
+                              FFmpeg sedang memotong video & menyusun subtitle kinetic. Anda bisa langsung membuka Studio Editing.
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => navigateTo("edit", currentJob.id)}
+                          className="btn-action px-4 py-2 text-xs font-bold text-bg flex items-center gap-2"
+                        >
+                          <span>BUKA STUDIO EDITING</span>
+                          <ArrowRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+
                     <div className="flex items-center justify-between border-b border-line pb-3 flex-wrap gap-3">
                       <div>
                         <h3 className="font-extrabold text-base md:text-lg uppercase tracking-tight text-copy">
@@ -789,7 +817,7 @@ export default function App(): JSX.Element {
                         {isRendering || currentJob.status === "rendering" ? (
                           <>
                             <RefreshCw className="w-4 h-4 animate-spin" />
-                            <span>SEDANG RENDERING...</span>
+                            <span>SEDANG RENDERING... ({Math.round((currentJob.progress || 0.8) * 100)}%)</span>
                           </>
                         ) : (
                           <>
@@ -895,6 +923,98 @@ export default function App(): JSX.Element {
                     onClipUpdated={handleReloadCurrentClip}
                   />
                 )}
+              </div>
+            ) : currentJob && currentJob.status === "rendering" ? (
+              <div className="p-12 marked-frame bg-surface border border-action/40 text-center flex flex-col items-center gap-4 shadow-xl">
+                <i className="crop-mark crop-tl" />
+                <i className="crop-mark crop-tr" />
+                <i className="crop-mark crop-bl" />
+                <i className="crop-mark crop-br" />
+                <div className="w-16 h-16 rounded-full bg-action/10 border border-action/30 flex items-center justify-center">
+                  <Film className="w-8 h-8 text-action animate-spin" />
+                </div>
+                <div>
+                  <h3 className="text-copy font-black text-lg uppercase tracking-wider">
+                    SEDANG ME-RENDER KLIP 9:16...
+                  </h3>
+                  <p className="text-muted text-xs max-w-md mt-1">
+                    FFmpeg sedang memotong video vertikal 1080x1920 dan menyusun subtitle kinetic.
+                    Klip akan otomatis muncul di studio ini begitu proses render selesai (tidak perlu refresh).
+                  </p>
+                </div>
+                <div className="w-full max-w-md flex flex-col gap-2">
+                  <div className="w-full bg-card h-3 border border-line overflow-hidden p-0.5">
+                    <div
+                      className="bg-action h-full transition-all duration-500"
+                      style={{ width: `${Math.round((currentJob.progress || 0.8) * 100)}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-[11px] font-mono text-muted">
+                    <span>TAHAP: {currentJob.stage || "render_clips"}</span>
+                    <span className="font-bold text-action">
+                      {Math.round((currentJob.progress || 0.8) * 100)}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : currentJob && currentJob.status === "failed" ? (
+              <div className="p-12 marked-frame bg-surface border border-red-500/30 text-center flex flex-col items-center gap-4 shadow-xl">
+                <i className="crop-mark crop-tl" />
+                <i className="crop-mark crop-tr" />
+                <i className="crop-mark crop-bl" />
+                <i className="crop-mark crop-br" />
+                <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center">
+                  <AlertTriangle className="w-8 h-8 text-red-500" />
+                </div>
+                <div>
+                  <h3 className="text-copy font-black text-lg uppercase tracking-wider text-red-400">
+                    PROSES RENDER GAGAL
+                  </h3>
+                  <p className="text-muted text-xs max-w-md mt-1 font-mono">
+                    {currentJob.error_message || currentJob.error_code || "Terjadi kesalahan saat pemotongan atau rendering video FFmpeg."}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3 mt-2">
+                  <button
+                    onClick={handleTriggerRender}
+                    disabled={isRendering}
+                    className="btn-action px-6 py-2.5 text-xs font-bold text-bg flex items-center gap-2"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    <span>COBA RENDER ULANG</span>
+                  </button>
+                  <button
+                    onClick={() => navigateTo("proc", currentJob.id)}
+                    className="btn-ghost px-5 py-2.5 text-xs font-bold text-copy"
+                  >
+                    KE PROCESSING & REVIEW
+                  </button>
+                </div>
+              </div>
+            ) : currentJob && ["running", "queued"].includes(currentJob.status) ? (
+              <div className="p-12 marked-frame bg-surface border border-line text-center flex flex-col items-center gap-4 shadow-xl">
+                <i className="crop-mark crop-tl" />
+                <i className="crop-mark crop-tr" />
+                <i className="crop-mark crop-bl" />
+                <i className="crop-mark crop-br" />
+                <div className="w-16 h-16 rounded-full bg-action/10 border border-action/30 flex items-center justify-center">
+                  <Clock className="w-8 h-8 text-action animate-spin" />
+                </div>
+                <div>
+                  <h3 className="text-copy font-black text-lg uppercase tracking-wider">
+                    PROYEK SEDANG DIANALISIS
+                  </h3>
+                  <p className="text-muted text-xs max-w-md mt-1">
+                    Tahap: {currentJob.stage || "ingest"} ({Math.round((currentJob.progress || 0) * 100)}%).
+                    Selesaikan kurasi kandidat di tab Processing & Review sebelum me-render klip.
+                  </p>
+                </div>
+                <button
+                  onClick={() => navigateTo("proc", currentJob.id)}
+                  className="btn-action px-6 py-2.5 text-xs font-bold text-bg"
+                >
+                  LIHAT PROGRES DI PROCESSING & REVIEW
+                </button>
               </div>
             ) : currentJob && renderedClips.length > 0 ? (
               <div className="p-12 marked-frame bg-surface border border-line text-center flex flex-col items-center gap-3">

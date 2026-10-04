@@ -275,7 +275,6 @@ async def delete_job(
     return {"status": "deleted", "job_id": job_id}
 
 
-
 @router.get("/{job_id}/events")
 async def stream_job_events(
     job_id: str,
@@ -380,30 +379,67 @@ async def update_candidate_review(
     return {"status": "updated", "candidate_id": candidate_id}
 
 
+class TriggerRenderRequest(BaseModel):
+    candidate_ids: list[str] | None = None
+    reframe_mode: str | None = None
+    subtitle_style: str | None = None
+
+
 @router.post("/{job_id}/render", status_code=status.HTTP_202_ACCEPTED)
 async def trigger_job_render(
     job_id: str,
+    payload: TriggerRenderRequest | None = None,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict[str, Any]:
     """Trigger rendering for approved/kept candidate clips in this job."""
     async with db.execute(
-        "SELECT id, source_url, genre, language, params_json FROM jobs WHERE id = ?", (job_id,)
+        "SELECT id, source_url, genre, language, params_json, status FROM jobs WHERE id = ?",
+        (job_id,),
     ) as cur:
         row = await cur.fetchone()
         if not row:
             raise JobNotFoundError(f"Job {job_id} not found")
-        source_url, genre, language, params_json = row[1], row[2], row[3], row[4]
+        source_url, genre, language, params_json, current_status = (
+            row[1],
+            row[2],
+            row[3],
+            row[4],
+            row[5],
+        )
+
+    # Double Render Protection / Idempotency
+    if current_status == JobStatus.RENDERING.value or f"render_{job_id}" in engine._active_tasks:
+        existing_task = engine._active_tasks.get(f"render_{job_id}")
+        if existing_task and not existing_task.done():
+            return {
+                "status": "rendering",
+                "job_id": job_id,
+                "message": "Render task already in progress",
+            }
 
     params = json.loads(params_json) if params_json else {}
-    stage_input = {
+    req_cand_ids = payload.candidate_ids if payload else None
+    req_reframe = (payload.reframe_mode if payload else None) or params.get("reframe_mode", "blur")
+    req_style = (payload.subtitle_style if payload else None) or params.get(
+        "subtitle_style", "classic_white"
+    )
+
+    stage_input: dict[str, Any] = {
         "job_id": job_id,
         "source_url": source_url,
         "genre": genre,
         "language": language,
         "clip_count": params.get("clip_count", 5),
-        "reframe_mode": params.get("reframe_mode", "blur"),
-        "subtitle_style": params.get("subtitle_style", "classic_white"),
+        "reframe_mode": req_reframe,
+        "subtitle_style": req_style,
+        "candidate_ids": req_cand_ids,
     }
+
+    # Reset errors and transition to RENDERING
+    await db.execute(
+        "UPDATE jobs SET error_code = NULL, error_message = NULL WHERE id = ?", (job_id,)
+    )
+    await db.commit()
 
     await transition_job_status(db, job_id, JobStatus.RENDERING, progress=0.80)
 
@@ -425,7 +461,11 @@ async def trigger_job_render(
                     await transition_job_status(task_db, job_id, JobStatus.DONE, progress=1.0)
                 else:
                     await transition_job_status(
-                        task_db, job_id, JobStatus.FAILED, error_code="RENDER_FAILED"
+                        task_db,
+                        job_id,
+                        JobStatus.FAILED,
+                        error_code="RENDER_FAILED",
+                        error_message="Stage render_clips returned failure without output files",
                     )
             except Exception as exc:
                 logger.error("Render execution failed", job_id=job_id, error=str(exc))
@@ -436,6 +476,8 @@ async def trigger_job_render(
                     error_code="RENDER_FAILED",
                     error_message=str(exc),
                 )
+            finally:
+                engine._active_tasks.pop(f"render_{job_id}", None)
 
     task = asyncio.create_task(_run_render_task())
     engine._active_tasks[f"render_{job_id}"] = task
@@ -498,19 +540,19 @@ async def get_job_clips(
     async with db.execute(query, (job_id,)) as cur:
         async for r in cur:
             qa_rep = json.loads(r[8]) if r[8] else None
-            clips.append({
-                "id": r[0],
-                "job_id": job_id,
-                "candidate_id": r[1],
-                "file_path": r[2],
-                "srt_path": r[3],
-                "duration_s": r[4],
-                "width": r[5],
-                "height": r[6],
-                "status": r[7],
-                "qa": qa_rep,
-                "created_at": r[9],
-            })
+            clips.append(
+                {
+                    "id": r[0],
+                    "job_id": job_id,
+                    "candidate_id": r[1],
+                    "file_path": r[2],
+                    "srt_path": r[3],
+                    "duration_s": r[4],
+                    "width": r[5],
+                    "height": r[6],
+                    "status": r[7],
+                    "qa": qa_rep,
+                    "created_at": r[9],
+                }
+            )
     return {"clips": clips, "total": len(clips)}
-
-

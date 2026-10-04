@@ -553,30 +553,41 @@ async def stage_render_clips(
     reframe_mode = stage_input.get("reframe_mode", "blur")
     subtitle_style = stage_input.get("subtitle_style", "classic_white")
 
-    # Fetch kept or top candidates from DB
-    async with db.execute(
-        "SELECT COUNT(*) FROM candidates WHERE job_id = ? AND status = 'kept'", (job_id,)
-    ) as cur:
-        row = await cur.fetchone()
-        kept_count = row[0] if row else 0
-
-    if kept_count > 0:
-        query = """
+    # Fetch kept, specific, or top candidates from DB
+    cand_ids = stage_input.get("candidate_ids")
+    if cand_ids and isinstance(cand_ids, list) and len(cand_ids) > 0:
+        placeholders = ",".join("?" for _ in cand_ids)
+        query = f"""
             SELECT id, rank, COALESCE(user_start_s, start_s), COALESCE(user_end_s, end_s), title, category
             FROM candidates
-            WHERE job_id = ? AND status = 'kept'
+            WHERE job_id = ? AND id IN ({placeholders})
             ORDER BY rank ASC, final_score DESC
         """
-        params: tuple[Any, ...] = (job_id,)
+        params: tuple[Any, ...] = (job_id, *cand_ids)
     else:
-        query = """
-            SELECT id, rank, COALESCE(user_start_s, start_s), COALESCE(user_end_s, end_s), title, category
-            FROM candidates
-            WHERE job_id = ? AND status != 'rejected'
-            ORDER BY rank ASC, final_score DESC
-            LIMIT ?
-        """
-        params = (job_id, target_count)
+        async with db.execute(
+            "SELECT COUNT(*) FROM candidates WHERE job_id = ? AND status = 'kept'", (job_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            kept_count = row[0] if row else 0
+
+        if kept_count > 0:
+            query = """
+                SELECT id, rank, COALESCE(user_start_s, start_s), COALESCE(user_end_s, end_s), title, category
+                FROM candidates
+                WHERE job_id = ? AND status = 'kept'
+                ORDER BY rank ASC, final_score DESC
+            """
+            params = (job_id,)
+        else:
+            query = """
+                SELECT id, rank, COALESCE(user_start_s, start_s), COALESCE(user_end_s, end_s), title, category
+                FROM candidates
+                WHERE job_id = ? AND status != 'rejected'
+                ORDER BY rank ASC, final_score DESC
+                LIMIT ?
+            """
+            params = (job_id, target_count)
 
     candidates_to_render = []
     async with db.execute(query, params) as cur:
@@ -600,6 +611,7 @@ async def stage_render_clips(
     qa_passed_count = 0
     style_preset = load_style_preset(subtitle_style)
     total_candidates = len(candidates_to_render)
+    last_render_error = "Unknown error"
 
     for idx, cand in enumerate(candidates_to_render):
         # Progressively update job render percentage: 0.80 -> 0.98
@@ -608,9 +620,14 @@ async def stage_render_clips(
             "UPDATE jobs SET progress = ?, updated_at = ? WHERE id = ?",
             (current_pct, datetime.now(UTC).isoformat(), job_id),
         )
+        cand_id = cand["id"]
+        # Mark candidate as rendering
+        await db.execute(
+            "UPDATE candidates SET status = 'rendering' WHERE id = ?",
+            (cand_id,),
+        )
         await db.commit()
 
-        cand_id = cand["id"]
         clip_id = str(uuid.uuid4())
         clip_folder = clips_dir / clip_id
         clip_folder.mkdir(parents=True, exist_ok=True)
@@ -627,7 +644,18 @@ async def stage_render_clips(
                 cookies_path=settings.cookies_file,
             )
         except Exception as exc:
-            logger.error("failed_to_download_clip_range", clip_id=clip_id, error=str(exc))
+            logger.error(
+                "failed_to_download_clip_range",
+                clip_id=clip_id,
+                candidate_id=cand_id,
+                error=str(exc),
+            )
+            last_render_error = f"Download range failed for {cand_id}: {exc}"
+            await db.execute(
+                "UPDATE candidates SET status = 'render_failed' WHERE id = ?",
+                (cand_id,),
+            )
+            await db.commit()
             continue
 
         # 2. Prepare words and kinetic subtitle script
@@ -665,13 +693,25 @@ async def stage_render_clips(
         srt_file.write_text(export_srt(chunks), encoding="utf-8")
 
         # 3. Render clip via engine
-        render_res = render_single_clip(
-            clip_dir=clip_folder,
-            raw_video=raw_video,
-            ass_path=ass_file,
-            mode=reframe_mode,
-            expected_duration_s=cand["duration_s"],
-        )
+        try:
+            render_res = render_single_clip(
+                clip_dir=clip_folder,
+                raw_video=raw_video,
+                ass_path=ass_file,
+                mode=reframe_mode,
+                expected_duration_s=cand["duration_s"],
+            )
+        except Exception as exc:
+            logger.error(
+                "render_single_clip_failed", clip_id=clip_id, candidate_id=cand_id, error=str(exc)
+            )
+            last_render_error = f"FFmpeg render failed for {cand_id}: {exc}"
+            await db.execute(
+                "UPDATE candidates SET status = 'render_failed' WHERE id = ?",
+                (cand_id,),
+            )
+            await db.commit()
+            continue
 
         now_iso = datetime.now(UTC).isoformat()
         clip_status = "done" if render_res["success"] else "failed"
@@ -727,16 +767,13 @@ async def stage_render_clips(
 
         # Mark candidate as rendered
         await db.execute("UPDATE candidates SET status = 'rendered' WHERE id = ?", (cand_id,))
+        await db.commit()
 
-        # Auto-sync to permanent finished_clips repository
-        try:
-            from clipforge.api.routes.clips import sync_finished_clip
-
-            await sync_finished_clip(db, clip_id)
-        except Exception as exc:
-            logger.warning("auto_sync_finished_clip_failed", clip_id=clip_id, error=str(exc))
-
-    await db.commit()
+    if not rendered_files and candidates_to_render:
+        raise RuntimeError(
+            f"Gagal me-render klip: 0 dari {len(candidates_to_render)} kandidat berhasil dirender. "
+            f"Penyebab terakhir: {last_render_error}"
+        )
 
     metrics = {
         "clips_rendered": len(rendered_files),

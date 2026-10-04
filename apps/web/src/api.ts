@@ -116,10 +116,17 @@ export async function updateCandidate(
 }
 
 export async function triggerRender(
-  jobId: string
-): Promise<{ status: string; job_id: string }> {
+  jobId: string,
+  payload?: {
+    candidate_ids?: string[];
+    reframe_mode?: string;
+    subtitle_style?: string;
+  }
+): Promise<{ status: string; job_id: string; message?: string }> {
   const res = await fetch(`${API_BASE}/api/jobs/${jobId}/render`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: payload ? JSON.stringify(payload) : undefined,
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Failed to trigger render" }));

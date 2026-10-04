@@ -29,6 +29,7 @@ export interface Job {
     | "done"
     | "failed"
     | "cancelled";
+  stage?: string | null;
   progress: number;
   error_code?: string | null;
   error_message?: string | null;
