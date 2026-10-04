@@ -112,3 +112,32 @@ async def test_clips_crud_and_subtitles(tmp_path: Path):
         res_srt = await client.get(f"/api/clips/{clip_id}/subtitles.srt")
         assert res_srt.status_code == 200
         assert "Squad wipe!" in res_srt.text or "Rata" in res_srt.text
+
+        # 5. PUT /api/clips/{id}/subtitles with dict style_preset (regression fix)
+        res_put_dict = await client.put(
+            f"/api/clips/{clip_id}/subtitles",
+            json={"words": new_words, "style_preset": {"preset": "neon_glow"}},
+        )
+        assert res_put_dict.status_code == 200
+        assert res_put_dict.json()["revision"] == 3
+
+        # 6. GET /api/clips/finished (global Hasil Klip)
+        res_finished = await client.get("/api/clips/finished")
+        assert res_finished.status_code == 200
+        finished_list = res_finished.json()
+        assert len(finished_list) >= 1
+        assert any(fc["clip_id"] == clip_id for fc in finished_list)
+
+        # 7. DELETE /api/jobs/{job_id} and verify finished clips survive
+        res_del_job = await client.delete(f"/api/jobs/{job_id}")
+        assert res_del_job.status_code == 200
+
+        # Finished clips must STILL be present even after job is deleted
+        res_finished_after = await client.get("/api/clips/finished")
+        assert res_finished_after.status_code == 200
+        assert any(fc["clip_id"] == clip_id for fc in res_finished_after.json())
+
+        # Video stream of finished clip must succeed
+        res_vid = await client.get(f"/api/clips/finished/{clip_id}/video")
+        assert res_vid.status_code == 200
+        assert res_vid.content == b"dummy video data"

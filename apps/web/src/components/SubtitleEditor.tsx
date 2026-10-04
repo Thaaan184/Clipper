@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { SubtitleTrack, SubtitleWord } from "../types";
 import {
   previewSubtitleFrame,
   rerenderClip,
+  saveFinishedClip,
   updateClipSubtitles,
 } from "../api";
 import {
@@ -26,9 +27,15 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
   initialTrack,
   onClipUpdated,
 }) => {
+  const getInitialPreset = (style: any): string => {
+    if (typeof style === "string" && style.trim()) return style;
+    if (style && typeof style === "object" && style.preset) return String(style.preset);
+    return "classic_white";
+  };
+
   const [words, setWords] = useState<SubtitleWord[]>(initialTrack.words || []);
-  const [stylePreset, setStylePreset] = useState(
-    initialTrack.style || "classic_white"
+  const [stylePreset, setStylePreset] = useState<string>(
+    getInitialPreset(initialTrack.style)
   );
   const [reframeMode, setReframeMode] = useState("blur");
   const [previewTime, setPreviewTime] = useState(1.0);
@@ -38,6 +45,13 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isRerendering, setIsRerendering] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+
+  useEffect(() => {
+    if (initialTrack) {
+      setWords(initialTrack.words || []);
+      setStylePreset(getInitialPreset(initialTrack.style));
+    }
+  }, [initialTrack]);
 
   const handleWordChange = (idx: number, newText: string) => {
     setWords((prev) =>
@@ -50,10 +64,16 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
     setSaveSuccess(false);
     try {
       await updateClipSubtitles(clipId, words, stylePreset);
+      try {
+        await saveFinishedClip(clipId);
+      } catch {
+        // finished clip sync fallback
+      }
       setSaveSuccess(true);
+      if (onClipUpdated) onClipUpdated();
       setTimeout(() => setSaveSuccess(false), 3000);
-    } catch (err) {
-      alert(`Gagal menyimpan subtitle: ${err}`);
+    } catch (err: any) {
+      alert(`Gagal menyimpan subtitle: ${err?.message || err}`);
     } finally {
       setIsSaving(false);
     }

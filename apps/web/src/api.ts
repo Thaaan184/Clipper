@@ -1,6 +1,7 @@
 import {
   Candidate,
   Clip,
+  FinishedClip,
   Job,
   JobParams,
   SubtitleTrack,
@@ -146,14 +147,19 @@ export async function getClipSubtitles(clipId: string): Promise<SubtitleTrack> {
 export async function updateClipSubtitles(
   clipId: string,
   words: SubtitleWord[],
-  stylePreset: string
+  stylePreset: string | { preset?: string }
 ): Promise<{ revision: number }> {
+  const presetStr =
+    typeof stylePreset === "string"
+      ? stylePreset
+      : stylePreset?.preset || "classic_white";
+
   const res = await fetch(`${API_BASE}/api/clips/${clipId}/subtitles`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       words,
-      style_preset: stylePreset,
+      style_preset: presetStr,
     }),
   });
   if (!res.ok) {
@@ -165,16 +171,21 @@ export async function updateClipSubtitles(
 export async function previewSubtitleFrame(
   clipId: string,
   t_s: number,
-  stylePreset: string,
+  stylePreset: string | { preset?: string },
   reframeMode = "blur",
   words?: SubtitleWord[]
 ): Promise<Blob> {
+  const presetStr =
+    typeof stylePreset === "string"
+      ? stylePreset
+      : stylePreset?.preset || "classic_white";
+
   const res = await fetch(`${API_BASE}/api/clips/${clipId}/subtitles/preview`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       t_s,
-      style_preset: stylePreset,
+      style_preset: presetStr,
       reframe_mode: reframeMode,
       words,
     }),
@@ -195,10 +206,54 @@ export async function rerenderClip(clipId: string): Promise<Clip> {
   return res.json();
 }
 
+export async function saveFinishedClip(clipId: string): Promise<any> {
+  const res = await fetch(`${API_BASE}/api/clips/${clipId}/save`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to save finished clip ${clipId}`);
+  }
+  return res.json();
+}
+
+export async function listFinishedClips(): Promise<FinishedClip[]> {
+  const res = await fetch(`${API_BASE}/api/clips/finished`);
+  if (!res.ok) {
+    throw new Error(`Failed to list finished clips`);
+  }
+  return res.json();
+}
+
+export async function deleteFinishedClip(clipId: string): Promise<any> {
+  const res = await fetch(`${API_BASE}/api/clips/finished/${clipId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to delete finished clip ${clipId}`);
+  }
+  return res.json();
+}
+
+export async function listAllClips(limit = 50): Promise<Clip[]> {
+  const res = await fetch(`${API_BASE}/api/clips?limit=${limit}`);
+  if (!res.ok) {
+    throw new Error(`Failed to list all clips`);
+  }
+  return res.json();
+}
+
 export function getClipVideoUrl(clipId: string): string {
   return `${API_BASE}/api/clips/${clipId}/video`;
 }
 
 export function getClipSrtUrl(clipId: string): string {
   return `${API_BASE}/api/clips/${clipId}/subtitles.srt`;
+}
+
+export function getFinishedClipVideoUrl(clipId: string): string {
+  return `${API_BASE}/api/clips/finished/${clipId}/video`;
+}
+
+export function getFinishedClipSrtUrl(clipId: string): string {
+  return `${API_BASE}/api/clips/finished/${clipId}/srt`;
 }

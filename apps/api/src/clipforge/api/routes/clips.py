@@ -1,6 +1,7 @@
 """API routes for clip retrieval, video streaming, subtitle editing, and WYSIWYG preview."""
 
 import json
+import shutil
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -12,6 +13,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from clipforge.core.config import settings
+from clipforge.core.logging import logger
 from clipforge.db.connection import get_db
 from clipforge.render.engine import render_single_clip
 from clipforge.render.preview import render_subtitle_preview_frame
@@ -41,28 +43,355 @@ class ClipResponse(BaseModel):
     render_params: dict[str, Any] = Field(default_factory=dict)
     qa: dict[str, Any] | None = None
     created_at: str
+    project_title: str | None = None
+
+
+class FinishedClipResponse(BaseModel):
+    id: str
+    clip_id: str
+    job_id: str | None = None
+    project_title: str | None = None
+    video_path: str
+    thumb_path: str | None = None
+    srt_path: str | None = None
+    duration_s: float | None = None
+    width: int = 1080
+    height: int = 1920
+    subtitles_json: str | None = None
+    created_at: str
+    updated_at: str
 
 
 class SubtitlesUpdatePayload(BaseModel):
     words: list[SubtitleWord]
-    style_preset: str = "classic_white"
+    style_preset: str | dict[str, Any] = "classic_white"
 
 
 class SubtitlesPreviewPayload(BaseModel):
     t_s: float = 1.0
-    style_preset: str = "classic_white"
+    style_preset: str | dict[str, Any] = "classic_white"
     reframe_mode: str = "blur"
     words: list[SubtitleWord] | None = None
+
+
+def _normalize_style_preset(style: str | dict[str, Any] | None) -> str:
+    if isinstance(style, dict):
+        return str(style.get("preset", "classic_white"))
+    if isinstance(style, str) and style.strip():
+        return style.strip()
+    return "classic_white"
+
+
+async def sync_finished_clip(db: aiosqlite.Connection, clip_id: str) -> dict[str, Any] | None:
+    """Copy rendered clip files to permanent storage and upsert to finished_clips."""
+    query = """
+        SELECT c.id, c.candidate_id, c.job_id, c.status, c.video_path, c.thumb_path, c.srt_path,
+               c.width, c.height, c.duration_s, j.title
+        FROM clips c
+        LEFT JOIN jobs j ON c.job_id = j.id
+        WHERE c.id = ?
+    """
+    async with db.execute(query, (clip_id,)) as cur:
+        row = await cur.fetchone()
+        if not row:
+            return None
+
+    (
+        c_id,
+        cand_id,
+        job_id,
+        status,
+        video_path,
+        thumb_path,
+        srt_path,
+        width,
+        height,
+        duration_s,
+        j_title,
+    ) = row
+    if not video_path:
+        return None
+
+    orig_video = Path(video_path)
+    if not orig_video.exists():
+        return None
+
+    # Permanent storage directory for finished clips
+    perm_dir = settings.data_dir / "finished_clips" / clip_id
+    perm_dir.mkdir(parents=True, exist_ok=True)
+
+    perm_video = perm_dir / f"{clip_id}.mp4"
+    try:
+        if not perm_video.exists() or orig_video.stat().st_mtime > perm_video.stat().st_mtime:
+            shutil.copy2(orig_video, perm_video)
+    except Exception as exc:
+        logger.warning("copy_finished_video_failed", clip_id=clip_id, error=str(exc))
+
+    final_video_path = str(perm_video if perm_video.exists() else orig_video)
+
+    perm_srt = perm_dir / f"{clip_id}.srt"
+    if srt_path and Path(srt_path).exists():
+        try:
+            shutil.copy2(Path(srt_path), perm_srt)
+        except Exception:
+            pass
+    final_srt_path = str(perm_srt if perm_srt.exists() else (srt_path or ""))
+
+    # Fetch latest subtitle words
+    words_json = "[]"
+    async with db.execute(
+        "SELECT id FROM subtitle_tracks WHERE clip_id = ? ORDER BY revision DESC LIMIT 1",
+        (clip_id,),
+    ) as cur:
+        t_row = await cur.fetchone()
+        if t_row:
+            t_id = t_row[0]
+            async with db.execute(
+                "SELECT idx, start_s, end_s, text, confidence FROM subtitle_words WHERE track_id = ? ORDER BY idx ASC",
+                (t_id,),
+            ) as w_cur:
+                w_rows = await w_cur.fetchall()
+                words_list = [
+                    {
+                        "idx": r[0],
+                        "start_s": r[1],
+                        "end_s": r[2],
+                        "text": r[3],
+                        "confidence": r[4],
+                    }
+                    for r in w_rows
+                ]
+                words_json = json.dumps(words_list)
+
+    now_iso = datetime.now(UTC).isoformat()
+    project_title = j_title or (f"Proyek {job_id[:8]}" if job_id else "ClipForge Project")
+
+    await db.execute(
+        """
+        INSERT INTO finished_clips (
+            id, clip_id, job_id, project_title, video_path, thumb_path, srt_path,
+            duration_s, width, height, subtitles_json, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            project_title = excluded.project_title,
+            video_path = excluded.video_path,
+            thumb_path = excluded.thumb_path,
+            srt_path = excluded.srt_path,
+            duration_s = excluded.duration_s,
+            width = excluded.width,
+            height = excluded.height,
+            subtitles_json = excluded.subtitles_json,
+            updated_at = excluded.updated_at
+        """,
+        (
+            clip_id,
+            clip_id,
+            job_id,
+            project_title,
+            final_video_path,
+            thumb_path,
+            final_srt_path,
+            duration_s,
+            width or 1080,
+            height or 1920,
+            words_json,
+            now_iso,
+            now_iso,
+        ),
+    )
+    await db.commit()
+
+    return {
+        "id": clip_id,
+        "clip_id": clip_id,
+        "job_id": job_id,
+        "project_title": project_title,
+        "video_path": final_video_path,
+        "thumb_path": thumb_path,
+        "srt_path": final_srt_path,
+        "duration_s": duration_s,
+        "width": width or 1080,
+        "height": height or 1920,
+        "subtitles_json": words_json,
+        "created_at": now_iso,
+        "updated_at": now_iso,
+    }
+
+
+@router.get("", response_model=list[ClipResponse])
+async def list_all_clips(
+    limit: int = 50, db: aiosqlite.Connection = Depends(get_db)
+) -> list[ClipResponse]:
+    """Retrieve all clips across all jobs with project title."""
+    query = """
+        SELECT c.id, c.candidate_id, c.job_id, c.status, c.video_path, c.thumb_path, c.srt_path,
+               c.width, c.height, c.duration_s, c.render_params_json, c.qa_json, c.created_at,
+               j.title
+        FROM clips c
+        LEFT JOIN jobs j ON c.job_id = j.id
+        ORDER BY c.created_at DESC
+        LIMIT ?
+    """
+    async with db.execute(query, (limit,)) as cur:
+        rows = await cur.fetchall()
+
+    return [
+        ClipResponse(
+            id=r[0],
+            candidate_id=r[1],
+            job_id=r[2],
+            status=r[3],
+            video_path=r[4],
+            thumb_path=r[5],
+            srt_path=r[6],
+            width=r[7] or 1080,
+            height=r[8] or 1920,
+            duration_s=r[9],
+            render_params=json.loads(r[10]) if r[10] else {},
+            qa=json.loads(r[11]) if r[11] else None,
+            created_at=r[12],
+            project_title=r[13],
+        )
+        for r in rows
+    ]
+
+
+@router.get("/finished", response_model=list[FinishedClipResponse])
+async def list_finished_clips(
+    db: aiosqlite.Connection = Depends(get_db),
+) -> list[FinishedClipResponse]:
+    """Retrieve all permanently finished and saved editorial clips."""
+    # Auto-sync rendered clips with status 'done' that have valid video files
+    async with db.execute(
+        "SELECT id FROM clips WHERE status = 'done' AND video_path IS NOT NULL"
+    ) as cur:
+        done_clips = await cur.fetchall()
+        for d in done_clips:
+            async with db.execute(
+                "SELECT id FROM finished_clips WHERE clip_id = ?", (d[0],)
+            ) as check_cur:
+                if not await check_cur.fetchone():
+                    try:
+                        await sync_finished_clip(db, d[0])
+                    except Exception as e:
+                        logger.warning("auto_sync_finished_clip_error", clip_id=d[0], error=str(e))
+
+    query = """
+        SELECT id, clip_id, job_id, project_title, video_path, thumb_path, srt_path,
+               duration_s, width, height, subtitles_json, created_at, updated_at
+        FROM finished_clips
+        ORDER BY updated_at DESC
+    """
+    async with db.execute(query) as cur:
+        rows = await cur.fetchall()
+
+    return [
+        FinishedClipResponse(
+            id=r[0],
+            clip_id=r[1],
+            job_id=r[2],
+            project_title=r[3],
+            video_path=r[4],
+            thumb_path=r[5],
+            srt_path=r[6],
+            duration_s=r[7],
+            width=r[8] or 1080,
+            height=r[9] or 1920,
+            subtitles_json=r[10],
+            created_at=r[11],
+            updated_at=r[12],
+        )
+        for r in rows
+    ]
+
+
+@router.get("/finished/{clip_id}/video")
+async def stream_finished_clip_video(
+    clip_id: str, db: aiosqlite.Connection = Depends(get_db)
+) -> FileResponse:
+    """Stream permanent finished MP4 video."""
+    async with db.execute(
+        "SELECT video_path FROM finished_clips WHERE id = ? OR clip_id = ?", (clip_id, clip_id)
+    ) as cur:
+        row = await cur.fetchone()
+        if not row or not row[0]:
+            raise HTTPException(status_code=404, detail="Finished clip video not found")
+
+    video_path = Path(row[0])
+    if not video_path.exists():
+        # Fallback to clip directory
+        async with db.execute("SELECT video_path FROM clips WHERE id = ?", (clip_id,)) as cur2:
+            r2 = await cur2.fetchone()
+            if r2 and r2[0] and Path(r2[0]).exists():
+                video_path = Path(r2[0])
+            else:
+                raise HTTPException(status_code=404, detail="Finished video file missing on disk")
+
+    return FileResponse(
+        path=str(video_path),
+        media_type="video/mp4",
+        filename=f"{clip_id}.mp4",
+    )
+
+
+@router.get("/finished/{clip_id}/srt")
+async def stream_finished_clip_srt(
+    clip_id: str, db: aiosqlite.Connection = Depends(get_db)
+) -> FileResponse:
+    """Download permanent finished SRT."""
+    async with db.execute(
+        "SELECT srt_path FROM finished_clips WHERE id = ? OR clip_id = ?", (clip_id, clip_id)
+    ) as cur:
+        row = await cur.fetchone()
+        if not row or not row[0]:
+            raise HTTPException(status_code=404, detail="Finished clip SRT not found")
+
+    srt_path = Path(row[0])
+    if not srt_path.exists():
+        raise HTTPException(status_code=404, detail="Finished SRT file missing on disk")
+
+    return FileResponse(
+        path=str(srt_path),
+        media_type="text/plain",
+        filename=f"{clip_id}.srt",
+    )
+
+
+@router.delete("/finished/{clip_id}")
+async def delete_finished_clip(
+    clip_id: str, db: aiosqlite.Connection = Depends(get_db)
+) -> dict[str, str]:
+    """Delete a finished clip from the global repository."""
+    perm_dir = settings.data_dir / "finished_clips" / clip_id
+    if perm_dir.exists():
+        shutil.rmtree(perm_dir, ignore_errors=True)
+
+    await db.execute("DELETE FROM finished_clips WHERE id = ? OR clip_id = ?", (clip_id, clip_id))
+    await db.commit()
+    return {"status": "deleted", "clip_id": clip_id}
+
+
+@router.post("/{clip_id}/save")
+async def save_clip_to_finished(
+    clip_id: str, db: aiosqlite.Connection = Depends(get_db)
+) -> dict[str, Any]:
+    """Explicitly save and publish a clip into the permanent Hasil Klip repository."""
+    res = await sync_finished_clip(db, clip_id)
+    if not res:
+        raise HTTPException(status_code=404, detail="Clip not found or not rendered yet")
+    return {"status": "saved", "finished_clip": res}
 
 
 @router.get("/{clip_id}", response_model=ClipResponse)
 async def get_clip(clip_id: str, db: aiosqlite.Connection = Depends(get_db)) -> ClipResponse:
     """Fetch clip metadata and QA report."""
     query = """
-        SELECT id, candidate_id, job_id, status, video_path, thumb_path, srt_path,
-               width, height, duration_s, render_params_json, qa_json, created_at
-        FROM clips
-        WHERE id = ?
+        SELECT c.id, c.candidate_id, c.job_id, c.status, c.video_path, c.thumb_path, c.srt_path,
+               c.width, c.height, c.duration_s, c.render_params_json, c.qa_json, c.created_at,
+               j.title
+        FROM clips c
+        LEFT JOIN jobs j ON c.job_id = j.id
+        WHERE c.id = ?
     """
     async with db.execute(query, (clip_id,)) as cursor:
         row = await cursor.fetchone()
@@ -86,6 +415,7 @@ async def get_clip(clip_id: str, db: aiosqlite.Connection = Depends(get_db)) -> 
             render_params=render_params,
             qa=qa,
             created_at=row[12],
+            project_title=row[13],
         )
 
 
@@ -97,7 +427,15 @@ async def stream_clip_video(
     async with db.execute("SELECT video_path FROM clips WHERE id = ?", (clip_id,)) as cursor:
         row = await cursor.fetchone()
         if not row or not row[0]:
-            raise HTTPException(status_code=404, detail="Clip video not found")
+            # Fallback to finished_clips
+            async with db.execute(
+                "SELECT video_path FROM finished_clips WHERE clip_id = ?", (clip_id,)
+            ) as f_cur:
+                f_row = await f_cur.fetchone()
+                if f_row and f_row[0]:
+                    row = f_row
+                else:
+                    raise HTTPException(status_code=404, detail="Clip video not found")
 
     video_path = Path(row[0])
     if not video_path.exists():
@@ -125,15 +463,31 @@ async def get_clip_subtitles(
     """
     async with db.execute(q_track, (clip_id,)) as cursor:
         track_row = await cursor.fetchone()
-        if not track_row:
-            return {"clip_id": clip_id, "revision": 0, "words": [], "style": "classic_white"}
 
-        track_id, revision, style_json, language = (
-            track_row[0],
-            track_row[1],
-            track_row[2],
-            track_row[3],
-        )
+    if not track_row:
+        # Check finished_clips subtitles_json
+        async with db.execute(
+            "SELECT subtitles_json FROM finished_clips WHERE clip_id = ?", (clip_id,)
+        ) as f_cur:
+            f_row = await f_cur.fetchone()
+            if f_row and f_row[0]:
+                saved_words = json.loads(f_row[0])
+                return {
+                    "clip_id": clip_id,
+                    "track_id": f"finished-{clip_id}",
+                    "revision": 1,
+                    "language": "id",
+                    "style": {"preset": "classic_white"},
+                    "words": saved_words,
+                }
+        return {"clip_id": clip_id, "revision": 0, "words": [], "style": "classic_white"}
+
+    track_id, revision, style_json, language = (
+        track_row[0],
+        track_row[1],
+        track_row[2],
+        track_row[3],
+    )
 
     # Fetch words
     q_words = """
@@ -171,9 +525,7 @@ async def update_clip_subtitles(
     payload: SubtitlesUpdatePayload,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict[str, Any]:
-    """
-    Update words for a clip subtitle track, creating a new revision.
-    """
+    """Update words for a clip subtitle track, creating a new revision."""
     async with db.execute("SELECT job_id, duration_s FROM clips WHERE id = ?", (clip_id,)) as cur:
         c_row = await cur.fetchone()
         if not c_row:
@@ -187,9 +539,10 @@ async def update_clip_subtitles(
         rev_row = await cur.fetchone()
         next_rev = (rev_row[0] if rev_row else 0) + 1
 
+    preset_name = _normalize_style_preset(payload.style_preset)
     track_id = str(uuid.uuid4())
     now_iso = datetime.now(UTC).isoformat()
-    style_json = json.dumps({"preset": payload.style_preset})
+    style_json = json.dumps({"preset": preset_name})
 
     # Validate words
     val_words = validate_and_normalize_words(payload.words, clip_duration_s=clip_dur)
@@ -216,11 +569,14 @@ async def update_clip_subtitles(
     # Re-generate subs.ass in clip folder
     clip_dir = settings.data_dir / "jobs" / job_id / "clips" / clip_id
     if clip_dir.exists():
-        style_preset = load_style_preset(payload.style_preset)
+        style_preset = load_style_preset(preset_name)
         chunks = create_kinetic_chunks(val_words)
         ass_content = generate_ass_script(chunks, style=style_preset)
         (clip_dir / "subs.ass").write_text(ass_content, encoding="utf-8")
         (clip_dir / "clip.srt").write_text(export_srt(chunks), encoding="utf-8")
+
+    # Automatically persist changes into finished_clips repository
+    await sync_finished_clip(db, clip_id)
 
     return {
         "status": "updated",
@@ -237,9 +593,7 @@ async def preview_subtitle_frame(
     payload: SubtitlesPreviewPayload,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> FileResponse:
-    """
-    Render a single WYSIWYG preview frame at t_s using the real FFmpeg ASS filter pipeline.
-    """
+    """Render a single WYSIWYG preview frame at t_s using the real FFmpeg ASS filter pipeline."""
     async with db.execute("SELECT job_id, video_path FROM clips WHERE id = ?", (clip_id,)) as cur:
         c_row = await cur.fetchone()
         if not c_row:
@@ -255,7 +609,8 @@ async def preview_subtitle_frame(
         else:
             raise HTTPException(status_code=404, detail="Source video for preview not found")
 
-    style_preset = load_style_preset(payload.style_preset)
+    preset_name = _normalize_style_preset(payload.style_preset)
+    style_preset = load_style_preset(preset_name)
 
     if payload.words is not None:
         words = validate_and_normalize_words(payload.words, clip_duration_s=60.0)
@@ -334,6 +689,9 @@ async def rerender_clip(
     )
     await db.commit()
 
+    # Automatically persist final re-rendered clip into finished_clips repository
+    await sync_finished_clip(db, clip_id)
+
     return await get_clip(clip_id, db)
 
 
@@ -346,7 +704,14 @@ async def download_clip_srt(
     async with db.execute("SELECT srt_path FROM clips WHERE id = ?", (clip_id,)) as cur:
         row = await cur.fetchone()
         if not row or not row[0]:
-            raise HTTPException(status_code=404, detail="SRT file not found")
+            async with db.execute(
+                "SELECT srt_path FROM finished_clips WHERE clip_id = ?", (clip_id,)
+            ) as f_cur:
+                f_row = await f_cur.fetchone()
+                if f_row and f_row[0]:
+                    row = f_row
+                else:
+                    raise HTTPException(status_code=404, detail="SRT file not found")
 
     srt_file = Path(row[0])
     if not srt_file.exists():

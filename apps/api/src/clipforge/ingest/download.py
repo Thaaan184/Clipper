@@ -200,15 +200,6 @@ async def download_video_range(
             )
         return out_path
 
-    # YouTube URL via yt-dlp download_ranges
-    def range_callback(info_dict: dict[str, Any], ydl: Any) -> list[dict[str, Any]]:
-        return [
-            {
-                "start_time": max(0.0, start_s - pad_s),
-                "end_time": end_s + pad_s,
-            }
-        ]
-
     temp_pad = out_path.parent / f"pad_{out_path.name}"
     ydl_opts: dict[str, Any] = {
         "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
@@ -216,14 +207,52 @@ async def download_video_range(
         "noplaylist": True,
         "quiet": True,
         "no_warnings": True,
-        "download_ranges": range_callback,
-        "force_keyframes_at_cuts": True,
     }
     if cookies_path and cookies_path.exists():
         ydl_opts["cookiefile"] = str(cookies_path)
 
+    def _sync_download() -> float:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(source_url, download=False)
+            has_fragments = False
+            requested = info.get("requested_formats") or [info]
+            for f in requested:
+                frags = f.get("fragments")
+                if frags and len(frags) > 1:
+                    has_fragments = True
+                    break
+
+            if has_fragments:
+                min_s_idx = None
+                frag_dur = 5.0
+                for f in requested:
+                    frags = f.get("fragments", [])
+                    if frags:
+                        frag_dur = float(f.get("target_duration") or 5.0)
+                        s_idx = max(0, int((start_s - pad_s) / frag_dur) - 1)
+                        e_idx = min(len(frags), int((end_s + pad_s) / frag_dur) + 2)
+                        f["fragments"] = frags[s_idx:e_idx]
+                        if min_s_idx is None or s_idx < min_s_idx:
+                            min_s_idx = s_idx
+                ydl.process_ie_result(info, download=True)
+                calc_offset = max(0.0, start_s - ((min_s_idx or 0) * frag_dur))
+                return calc_offset
+            else:
+                def range_callback(info_dict: dict[str, Any], ydl_inst: Any) -> list[dict[str, Any]]:
+                    return [
+                        {
+                            "start_time": max(0.0, start_s - pad_s),
+                            "end_time": end_s + pad_s,
+                        }
+                    ]
+
+                ydl.params["download_ranges"] = range_callback
+                ydl.params["force_keyframes_at_cuts"] = True
+                ydl.process_ie_result(info, download=True)
+                return max(0.0, min(pad_s, start_s))
+
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, lambda: yt_dlp.YoutubeDL(ydl_opts).download([source_url]))
+    actual_offset = await loop.run_in_executor(None, _sync_download)
 
     # Now trim the exact segment from padded video
     padded_candidates = list(out_path.parent.glob(f"pad_{out_path.stem}*"))
@@ -231,7 +260,6 @@ async def download_video_range(
         raise FileNotFoundError("Padded download file not found")
 
     padded_file = padded_candidates[0]
-    actual_offset = max(0.0, min(pad_s, start_s))
 
     trim_cmd = [
         "ffmpeg",

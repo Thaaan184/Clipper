@@ -2,13 +2,17 @@ import { useEffect, useState } from "react";
 import {
   cancelJob,
   createJob,
+  deleteFinishedClip,
   deleteJob,
   getCandidates,
   getClip,
   getClipSubtitles,
+  getFinishedClipSrtUrl,
+  getFinishedClipVideoUrl,
   getJob,
   getJobClips,
   getTimeline,
+  listFinishedClips,
   listJobs,
   triggerRender,
   updateCandidate,
@@ -20,13 +24,23 @@ import { JobForm } from "./components/JobForm";
 import { ProgressTracker } from "./components/ProgressTracker";
 import { SubtitleEditor } from "./components/SubtitleEditor";
 import { TimelineVisualizer } from "./components/TimelineVisualizer";
-import { Candidate, Clip, Job, JobParams, SubtitleTrack, TimelineData } from "./types";
+import {
+  Candidate,
+  Clip,
+  FinishedClip,
+  Job,
+  JobParams,
+  SubtitleTrack,
+  TimelineData,
+} from "./types";
 import {
   ArrowRight,
   Award,
+  CheckCircle,
+  Download,
+  Edit3,
   Film,
   Layers,
-  Palette,
   Play,
   RefreshCw,
   Sparkles,
@@ -34,8 +48,44 @@ import {
   Video,
 } from "lucide-react";
 
+type NavTab = "home" | "proc" | "edit" | "res" | "eval";
+
+interface ParsedRoute {
+  tab: NavTab;
+  projectId?: string;
+  clipId?: string;
+}
+
+function parseUrlPath(pathname: string): ParsedRoute {
+  if (pathname === "/results" || pathname === "/results/") {
+    return { tab: "res" };
+  }
+  if (pathname === "/eval" || pathname === "/eval/") {
+    return { tab: "eval" };
+  }
+  const editWithClipMatch = pathname.match(/^\/projects\/([^/]+)\/clips\/([^/]+)\/editing\/?$/);
+  if (editWithClipMatch) {
+    return { tab: "edit", projectId: editWithClipMatch[1], clipId: editWithClipMatch[2] };
+  }
+  const editMatch = pathname.match(/^\/projects\/([^/]+)\/editing\/?$/);
+  if (editMatch) {
+    return { tab: "edit", projectId: editMatch[1] };
+  }
+  if (pathname === "/editing" || pathname === "/editing/") {
+    return { tab: "edit" };
+  }
+  const procMatch = pathname.match(/^\/projects\/([^/]+)\/processing\/?$/);
+  if (procMatch) {
+    return { tab: "proc", projectId: procMatch[1] };
+  }
+  if (pathname === "/processing" || pathname === "/processing/") {
+    return { tab: "proc" };
+  }
+  return { tab: "home" };
+}
+
 export default function App(): JSX.Element {
-  const [activeTab, setActiveTab] = useState<"home" | "proc" | "res" | "eval" | "spec">("home");
+  const [activeTab, setActiveTab] = useState<NavTab>("home");
 
   const [currentJob, setCurrentJob] = useState<Job | null>(null);
   const [timeline, setTimeline] = useState<TimelineData | null>(null);
@@ -44,12 +94,16 @@ export default function App(): JSX.Element {
   const [renderedClips, setRenderedClips] = useState<Clip[]>([]);
   const [recentJobs, setRecentJobs] = useState<Job[]>([]);
 
+  // Global repository of finished / saved clips
+  const [finishedClips, setFinishedClips] = useState<FinishedClip[]>([]);
+
+  // Active clip & subtitles for Editing tab
   const [activeClip, setActiveClip] = useState<Clip | null>(null);
   const [activeSubtitleTrack, setActiveSubtitleTrack] = useState<SubtitleTrack | null>(null);
-  const [isEditingSubtitles, setIsEditingSubtitles] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [isRendering, setIsRendering] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Live 24fps timecode display
@@ -75,21 +129,129 @@ export default function App(): JSX.Element {
     return () => clearInterval(interval);
   }, []);
 
-  // Fetch recent jobs on load
+  const navigateTo = (
+    tab: NavTab,
+    projectId?: string,
+    clipId?: string,
+    replace = false
+  ) => {
+    let targetPath = "/";
+    if (tab === "home") {
+      targetPath = "/";
+    } else if (tab === "proc") {
+      targetPath = projectId ? `/projects/${projectId}/processing` : "/";
+    } else if (tab === "edit") {
+      if (projectId && clipId) {
+        targetPath = `/projects/${projectId}/clips/${clipId}/editing`;
+      } else if (projectId) {
+        targetPath = `/projects/${projectId}/editing`;
+      } else {
+        targetPath = "/editing";
+      }
+    } else if (tab === "res") {
+      targetPath = "/results";
+    } else if (tab === "eval") {
+      targetPath = "/eval";
+    }
+
+    if (window.location.pathname !== targetPath) {
+      if (replace) {
+        window.history.replaceState(null, "", targetPath);
+      } else {
+        window.history.pushState(null, "", targetPath);
+      }
+    }
+
+    setActiveTab(tab);
+    if (projectId) {
+      localStorage.setItem("clipforge_active_job_id", projectId);
+    }
+    if (clipId) {
+      localStorage.setItem("clipforge_active_clip_id", clipId);
+    }
+  };
+
+  // Load recent jobs
   const loadRecentJobs = async () => {
     try {
-      const list = await listJobs(6);
+      const list = await listJobs(12);
       setRecentJobs(list);
     } catch {
       // ignore
     }
   };
 
+  // Load global finished clips
+  const loadFinishedClipsList = async () => {
+    try {
+      const list = await listFinishedClips();
+      setFinishedClips(list);
+    } catch {
+      // ignore
+    }
+  };
+
+  // Route Synchronization on mount and back/forward navigation
+  const syncFromRoute = async () => {
+    const route = parseUrlPath(window.location.pathname);
+    setActiveTab(route.tab);
+
+    const fallbackJobId = localStorage.getItem("clipforge_active_job_id");
+    const fallbackClipId = localStorage.getItem("clipforge_active_clip_id");
+    const targetJobId =
+      route.projectId ||
+      (route.tab === "proc" || route.tab === "edit" ? fallbackJobId : null);
+    const targetClipId =
+      route.clipId || (route.tab === "edit" ? fallbackClipId : null);
+
+    if (targetJobId) {
+      try {
+        const job = await getJob(targetJobId);
+        setCurrentJob(job);
+        const [tData, cData, clipsRes] = await Promise.all([
+          getTimeline(job.id).catch(() => null),
+          getCandidates(job.id).catch(() => ({ candidates: [] })),
+          getJobClips(job.id).catch(() => ({ clips: [] })),
+        ]);
+        if (tData) setTimeline(tData);
+        if (cData) setCandidates(cData.candidates);
+        if (clipsRes && clipsRes.clips.length > 0) {
+          setRenderedClips(clipsRes.clips);
+          const matchClip = targetClipId
+            ? clipsRes.clips.find((c: Clip) => c.id === targetClipId)
+            : null;
+          const chosen = matchClip || clipsRes.clips[0];
+          setActiveClip(chosen);
+          try {
+            const subs = await getClipSubtitles(chosen.id);
+            setActiveSubtitleTrack(subs);
+          } catch {
+            // ignore
+          }
+        }
+      } catch (err) {
+        console.error("Failed to restore routed job:", err);
+      }
+    }
+
+    if (route.tab === "res") {
+      loadFinishedClipsList();
+    }
+  };
+
   useEffect(() => {
     loadRecentJobs();
+    loadFinishedClipsList();
+    syncFromRoute();
+
+    const handlePopState = () => {
+      syncFromRoute();
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
-  // Poll current job when active
+  // Poll current job when in progress
   useEffect(() => {
     if (!currentJob) return;
     const isTerminal = ["done", "failed", "cancelled"].includes(currentJob.status);
@@ -99,7 +261,6 @@ export default function App(): JSX.Element {
         const updated = await getJob(jobId);
         setCurrentJob(updated);
 
-        // Fetch candidates and timeline
         if (["awaiting_review", "rendering", "done"].includes(updated.status)) {
           const [tData, cData] = await Promise.all([
             getTimeline(updated.id).catch(() => null),
@@ -109,13 +270,16 @@ export default function App(): JSX.Element {
           if (cData) setCandidates(cData.candidates);
         }
 
-        // Fetch clips if rendering or done
         if (["rendering", "done"].includes(updated.status)) {
           const clipsRes = await getJobClips(updated.id).catch(() => ({ clips: [] }));
           if (clipsRes && clipsRes.clips.length > 0) {
             setRenderedClips(clipsRes.clips);
             if (!activeClip) {
-              setActiveClip(clipsRes.clips[0]);
+              const first = clipsRes.clips[0];
+              setActiveClip(first);
+              getClipSubtitles(first.id)
+                .then(setActiveSubtitleTrack)
+                .catch(() => {});
             }
           }
         }
@@ -124,9 +288,7 @@ export default function App(): JSX.Element {
       }
     };
 
-    // First fetch immediately
     fetchDetails(currentJob.id);
-
     if (isTerminal) return;
 
     const interval = setInterval(() => {
@@ -152,7 +314,7 @@ export default function App(): JSX.Element {
       setRenderedClips([]);
       setActiveClip(null);
       setActiveSubtitleTrack(null);
-      setActiveTab("proc");
+      navigateTo("proc", job.id);
       showToast("Job pemrosesan sinyal berhasil dibuat!");
       loadRecentJobs();
     } catch (err) {
@@ -164,8 +326,10 @@ export default function App(): JSX.Element {
 
   const handleSelectRecentJob = async (job: Job) => {
     setCurrentJob(job);
-    setActiveTab("proc");
-    showToast(`Memuat data job ${job.id.slice(0, 8)}`);
+    setActiveClip(null);
+    setActiveSubtitleTrack(null);
+    navigateTo("proc", job.id);
+    showToast(`Memuat data proyek ${job.id.slice(0, 8)}`);
     try {
       const [tData, cData, clipsRes] = await Promise.all([
         getTimeline(job.id).catch(() => null),
@@ -176,7 +340,11 @@ export default function App(): JSX.Element {
       if (cData) setCandidates(cData.candidates);
       if (clipsRes && clipsRes.clips.length > 0) {
         setRenderedClips(clipsRes.clips);
-        setActiveClip(clipsRes.clips[0]);
+        const first = clipsRes.clips[0];
+        setActiveClip(first);
+        getClipSubtitles(first.id)
+          .then(setActiveSubtitleTrack)
+          .catch(() => {});
       }
     } catch {
       // ignore
@@ -199,6 +367,7 @@ export default function App(): JSX.Element {
     if (!confirm(`Hapus proyek ${jobId.slice(0, 8)} secara permanen dari server?`)) {
       return;
     }
+    setIsDeleting(true);
     try {
       await deleteJob(jobId);
       setRecentJobs((prev) => prev.filter((j) => j.id !== jobId));
@@ -208,11 +377,31 @@ export default function App(): JSX.Element {
         setCandidates([]);
         setRenderedClips([]);
         setActiveClip(null);
-        setActiveTab("home");
+        setActiveSubtitleTrack(null);
+        localStorage.removeItem("clipforge_active_job_id");
+        localStorage.removeItem("clipforge_active_clip_id");
+        navigateTo("home");
       }
       showToast("Proyek berhasil dihapus.");
+      loadFinishedClipsList();
     } catch (err: any) {
       showToast(`Gagal menghapus proyek: ${err.message || err}`);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleDeleteFinishedClip = async (clipId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!confirm("Hapus klip ini secara permanen dari Hasil Klip?")) {
+      return;
+    }
+    try {
+      await deleteFinishedClip(clipId);
+      setFinishedClips((prev) => prev.filter((fc) => fc.clip_id !== clipId && fc.id !== clipId));
+      showToast("Klip berhasil dihapus dari Hasil Klip.");
+    } catch (err: any) {
+      showToast(`Gagal menghapus klip: ${err.message || err}`);
     }
   };
 
@@ -269,17 +458,49 @@ export default function App(): JSX.Element {
     }
   };
 
-  const handleLoadClip = async (clipId: string) => {
+  const handleSelectClipForEditing = async (clip: Clip) => {
+    setActiveClip(clip);
     try {
-      const clip = await getClip(clipId);
-      setActiveClip(clip);
-      const subs = await getClipSubtitles(clipId);
+      const subs = await getClipSubtitles(clip.id);
       setActiveSubtitleTrack(subs);
-      setActiveTab("res");
-      setIsEditingSubtitles(false);
-      showToast(`Membuka klip ${clipId.slice(0, 8)}`);
-    } catch (err) {
-      showToast(`Gagal memuat klip: ${err}`);
+    } catch {
+      setActiveSubtitleTrack(null);
+    }
+    navigateTo("edit", currentJob?.id || clip.job_id, clip.id);
+    showToast(`Membuka klip ${clip.id.slice(0, 8)} di Studio Editing`);
+  };
+
+  const handleOpenFinishedInEditor = async (fc: FinishedClip) => {
+    try {
+      if (fc.job_id) {
+        const job = await getJob(fc.job_id).catch(() => null);
+        if (job) {
+          setCurrentJob(job);
+          const clipsRes = await getJobClips(job.id).catch(() => ({ clips: [] }));
+          setRenderedClips(clipsRes.clips);
+        }
+      }
+      const clip = await getClip(fc.clip_id);
+      setActiveClip(clip);
+      const subs = await getClipSubtitles(fc.clip_id);
+      setActiveSubtitleTrack(subs);
+      navigateTo("edit", fc.job_id || "global", fc.clip_id);
+      showToast(`Membuka klip ${fc.clip_id.slice(0, 8)} di Editor`);
+    } catch (err: any) {
+      showToast(`Gagal membuka klip di editor: ${err.message || err}`);
+    }
+  };
+
+  const handleReloadCurrentClip = async () => {
+    if (!activeClip) return;
+    try {
+      const updatedClip = await getClip(activeClip.id);
+      setActiveClip(updatedClip);
+      const subs = await getClipSubtitles(activeClip.id);
+      setActiveSubtitleTrack(subs);
+      loadFinishedClipsList();
+    } catch {
+      // ignore
     }
   };
 
@@ -292,7 +513,7 @@ export default function App(): JSX.Element {
         {/* Brand */}
         <div
           className="flex items-center gap-3 cursor-pointer select-none"
-          onClick={() => setActiveTab("home")}
+          onClick={() => navigateTo("home")}
         >
           <div className="w-3.5 h-3.5 bg-action" />
           <div className="flex items-baseline gap-2">
@@ -303,10 +524,11 @@ export default function App(): JSX.Element {
           </div>
         </div>
 
-        {/* Cutting Room Navigation */}
+        {/* Navigation Tabs: Home -> Processing & Review -> Editing -> Hasil Klip */}
         <nav className="flex items-center gap-1 sm:gap-2">
+          {/* TAB 1: HOME */}
           <button
-            onClick={() => setActiveTab("home")}
+            onClick={() => navigateTo("home")}
             className={`px-3 py-1.5 text-xs font-bold transition-all border-b-2 ${
               activeTab === "home"
                 ? "border-action text-copy"
@@ -315,8 +537,10 @@ export default function App(): JSX.Element {
           >
             Home
           </button>
+
+          {/* TAB 2: PROCESSING & REVIEW */}
           <button
-            onClick={() => setActiveTab("proc")}
+            onClick={() => navigateTo("proc", currentJob?.id)}
             className={`px-3 py-1.5 text-xs font-bold transition-all border-b-2 flex items-center gap-1.5 ${
               activeTab === "proc"
                 ? "border-action text-copy"
@@ -329,8 +553,31 @@ export default function App(): JSX.Element {
               <span className="w-1.5 h-1.5 rounded-full bg-action animate-ping" />
             )}
           </button>
+
+          {/* TAB 3: EDITING */}
           <button
-            onClick={() => setActiveTab("res")}
+            onClick={() => navigateTo("edit", currentJob?.id, activeClip?.id)}
+            className={`px-3 py-1.5 text-xs font-bold transition-all border-b-2 flex items-center gap-1.5 ${
+              activeTab === "edit"
+                ? "border-action text-copy"
+                : "border-transparent text-muted hover:text-copy"
+            }`}
+          >
+            <Edit3 className="w-3.5 h-3.5" />
+            <span>Editing</span>
+            {activeClip && (
+              <span className="text-[10px] font-mono px-1 py-0.2 bg-card border border-line text-action">
+                #{activeClip.id.slice(0, 4)}
+              </span>
+            )}
+          </button>
+
+          {/* TAB 4: HASIL KLIP (GLOBAL) */}
+          <button
+            onClick={() => {
+              loadFinishedClipsList();
+              navigateTo("res");
+            }}
             className={`px-3 py-1.5 text-xs font-bold transition-all border-b-2 flex items-center gap-1.5 ${
               activeTab === "res"
                 ? "border-action text-copy"
@@ -338,10 +585,12 @@ export default function App(): JSX.Element {
             }`}
           >
             <Film className="w-3.5 h-3.5" />
-            <span>Hasil Klip ({renderedClips.length})</span>
+            <span>Hasil Klip ({finishedClips.length})</span>
           </button>
+
+          {/* GOLDEN SET BENCHMARK */}
           <button
-            onClick={() => setActiveTab("eval")}
+            onClick={() => navigateTo("eval")}
             className={`px-3 py-1.5 text-xs font-bold transition-all border-b-2 flex items-center gap-1.5 ${
               activeTab === "eval"
                 ? "border-action text-copy"
@@ -350,17 +599,6 @@ export default function App(): JSX.Element {
           >
             <Award className="w-3.5 h-3.5" />
             <span>Golden Set</span>
-          </button>
-          <button
-            onClick={() => setActiveTab("spec")}
-            className={`px-3 py-1.5 text-xs font-bold transition-all border-b-2 flex items-center gap-1.5 ${
-              activeTab === "spec"
-                ? "border-action text-copy"
-                : "border-transparent text-muted hover:text-copy"
-            }`}
-          >
-            <Palette className="w-3.5 h-3.5" />
-            <span>Spec & Palet</span>
           </button>
         </nav>
 
@@ -437,8 +675,9 @@ export default function App(): JSX.Element {
                         <div className="flex items-center gap-3">
                           <button
                             type="button"
+                            disabled={isDeleting}
                             onClick={(e) => handleDeleteJob(j.id, e)}
-                            className="text-muted hover:text-err p-1 transition-colors flex items-center gap-1"
+                            className="text-muted hover:text-err p-1 transition-colors flex items-center gap-1 disabled:opacity-50"
                             title="Hapus Proyek"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -457,10 +696,9 @@ export default function App(): JSX.Element {
           </div>
         )}
 
-        {/* VIEW 2: PROCESSING & REVIEW */}
+        {/* VIEW 2: PROCESSING & REVIEW (BOUND TO CURRENT PROJECT) */}
         {activeTab === "proc" && (
           <div className="flex flex-col gap-8">
-            {/* Header info if job exists */}
             {currentJob ? (
               <>
                 <ProgressTracker
@@ -469,6 +707,56 @@ export default function App(): JSX.Element {
                   onRetry={handleTriggerRender}
                   onDelete={() => handleDeleteJob(currentJob.id)}
                 />
+
+                {/* Rendered Clips Gallery for this project */}
+                {renderedClips.length > 0 && (
+                  <div className="marked-frame border border-line bg-surface p-5 flex flex-col gap-4">
+                    <i className="crop-mark crop-tl" />
+                    <i className="crop-mark crop-tr" />
+                    <i className="crop-mark crop-bl" />
+                    <i className="crop-mark crop-br" />
+                    <div className="flex items-center justify-between border-b border-line pb-2.5">
+                      <div className="flex items-center gap-2">
+                        <Video className="w-4 h-4 text-action" />
+                        <h3 className="font-extrabold text-sm uppercase tracking-wider text-copy">
+                          KLIP BERHASIL DIRENDER ({renderedClips.length} KLIP)
+                        </h3>
+                      </div>
+                      <span className="text-xs text-muted font-mono">
+                        Pilih klip di bawah untuk mengedit teks & subtitle kinetic
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+                      {renderedClips.map((c, idx) => (
+                        <button
+                          key={c.id}
+                          onClick={() => handleSelectClipForEditing(c)}
+                          className={`marked-card p-2.5 bg-card border text-left flex flex-col gap-1.5 transition-all ${
+                            activeClip?.id === c.id
+                              ? "border-action ring-1 ring-action"
+                              : "border-line hover:border-action/60"
+                          }`}
+                        >
+                          <div className="aspect-[9/12] bg-bg border-x-2 border-dashed border-line flex flex-col items-center justify-center p-2 text-center">
+                            <span className="font-extrabold text-sm text-copy font-mono">
+                              KLIP #{idx + 1}
+                            </span>
+                            <span className="text-[10px] text-muted font-mono mt-1">
+                              {c.id.slice(0, 6)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center text-[10px] font-mono text-muted">
+                            <span>{c.duration_s?.toFixed(1) || "--"}s</span>
+                            <span className="text-action font-bold flex items-center gap-0.5">
+                              Edit <ArrowRight className="w-2.5 h-2.5" />
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Multi-Lane Timeline */}
                 {timeline && (
@@ -536,12 +824,12 @@ export default function App(): JSX.Element {
                 <i className="crop-mark crop-bl" />
                 <i className="crop-mark crop-br" />
                 <Layers className="w-10 h-10 text-action" />
-                <h3 className="text-copy font-bold text-base">Belum Ada Job Aktif</h3>
+                <h3 className="text-copy font-bold text-base">Belum Ada Proyek Aktif</h3>
                 <p className="text-muted text-xs max-w-sm">
-                  Masukkan link YouTube pada tab Home untuk memulai pipeline deteksi sinyal dan kurasi highlight.
+                  Pilih proyek dari daftar Proyek Terakhir atau masukkan URL YouTube baru di tab Home.
                 </p>
                 <button
-                  onClick={() => setActiveTab("home")}
+                  onClick={() => navigateTo("home")}
                   className="btn-action px-5 py-2 text-xs font-bold text-bg mt-2"
                 >
                   KE TAB HOME
@@ -551,175 +839,245 @@ export default function App(): JSX.Element {
           </div>
         )}
 
-        {/* VIEW 3: HASIL KLIP & SUBTITLE STUDIO */}
-        {activeTab === "res" && (
-          <div className="flex flex-col gap-8">
-            {/* Header bar */}
+        {/* VIEW 3: EDITING (BOUND TO CURRENT PROJECT & CLIP) */}
+        {activeTab === "edit" && (
+          <div className="flex flex-col gap-6">
+            {/* Project & Clip Header */}
             <div className="flex items-center justify-between border-b border-line pb-3 flex-wrap gap-4">
               <div>
-                <h2 className="text-xl font-extrabold uppercase tracking-tight text-copy">
-                  {renderedClips.length > 0
-                    ? `${renderedClips.length} KLIP SIAP UPLOAD`
-                    : "STUDIO KLIP & SUBTITLE"}
-                </h2>
+                <div className="flex items-center gap-2">
+                  <Edit3 className="w-5 h-5 text-action" />
+                  <h2 className="text-xl font-extrabold uppercase tracking-tight text-copy">
+                    STUDIO EDITING KLIP & SUBTITLE
+                  </h2>
+                </div>
                 <p className="text-xs text-muted">
-                  Hasil render 9:16 vertikal dengan standar broadcast EBU R128 (-14 LUFS) dan subtitle kinetic ASS.
+                  {currentJob
+                    ? `Proyek: ${currentJob.title || currentJob.source_url} (JOB: ${currentJob.id.slice(0, 8)})`
+                    : "Pilih klip untuk menyunting transkrip ASR, gaya subtitle kinetic ASS, dan render ulang."}
                 </p>
               </div>
 
               {renderedClips.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-mono text-muted">
-                    Total: {renderedClips.length} Klip
-                  </span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-mono text-muted">Pilih Klip:</span>
+                  {renderedClips.map((c, i) => (
+                    <button
+                      key={c.id}
+                      onClick={() => handleSelectClipForEditing(c)}
+                      className={`px-3 py-1 text-xs font-mono font-bold border transition-all ${
+                        activeClip?.id === c.id
+                          ? "bg-action text-bg border-action"
+                          : "bg-surface text-copy border-line hover:border-action"
+                      }`}
+                    >
+                      #{i + 1} ({c.duration_s?.toFixed(0)}s)
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
 
-            {/* List of Rendered Clips Cards */}
-            {renderedClips.length > 0 && (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-                {renderedClips.map((c, idx) => (
-                  <button
-                    key={c.id}
-                    onClick={() => handleLoadClip(c.id)}
-                    className={`marked-card p-2.5 bg-surface border text-left flex flex-col gap-1.5 transition-all ${
-                      activeClip?.id === c.id
-                        ? "border-action bg-card ring-1 ring-action"
-                        : "border-line hover:border-action/60"
-                    }`}
-                  >
-                    <i className="crop-mark crop-tl" />
-                    <i className="crop-mark crop-tr" />
-                    <i className="crop-mark crop-bl" />
-                    <i className="crop-mark crop-br" />
-
-                    <div className="aspect-[9/12] bg-card border-x-2 border-dashed border-line flex items-center justify-center p-2 text-center">
-                      <span className="font-extrabold text-sm text-copy font-mono">
-                        CLIP #{idx + 1}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center text-[10px] font-mono text-muted">
-                      <span>{c.duration_s?.toFixed(1) || "--"}s</span>
-                      <span className={c.qa?.passed ? "text-green-400 font-bold" : "text-action"}>
-                        {c.qa?.passed ? "QA PASS" : "RENDERED"}
-                      </span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Active Clip Player & Subtitle Studio */}
+            {/* Editing Workspace */}
             {activeClip ? (
               <div className="flex flex-col gap-8">
+                {/* 9:16 Video Player Card */}
                 <ClipPlayer
                   clip={activeClip}
-                  onEditSubtitles={() => setIsEditingSubtitles(!isEditingSubtitles)}
+                  onEditSubtitles={() => {}}
                 />
 
-                {isEditingSubtitles && activeSubtitleTrack && (
+                {/* Subtitle & Preset Studio */}
+                {activeSubtitleTrack && (
                   <SubtitleEditor
                     clipId={activeClip.id}
                     initialTrack={activeSubtitleTrack}
-                    onClipUpdated={() => handleLoadClip(activeClip.id)}
+                    onClipUpdated={handleReloadCurrentClip}
                   />
                 )}
               </div>
+            ) : currentJob && renderedClips.length > 0 ? (
+              <div className="p-12 marked-frame bg-surface border border-line text-center flex flex-col items-center gap-3">
+                <Video className="w-8 h-8 text-action" />
+                <h3 className="text-copy font-bold text-sm">Pilih Klip untuk Diedit</h3>
+                <p className="text-muted text-xs">
+                  Proyek ini memiliki {renderedClips.length} klip. Klik tombol nomor klip di kanan atas untuk mulai mengedit.
+                </p>
+              </div>
+            ) : currentJob ? (
+              <div className="p-16 marked-frame bg-surface border border-line text-center flex flex-col items-center gap-3">
+                <Video className="w-10 h-10 text-action" />
+                <h3 className="text-copy font-bold text-base">Belum Ada Klip yang Dirender</h3>
+                <p className="text-muted text-xs max-w-sm">
+                  Pilih kandidat highlight di tab Processing & Review lalu jalankan render untuk menghasilkan klip 9:16.
+                </p>
+                <button
+                  onClick={() => navigateTo("proc", currentJob.id)}
+                  className="btn-action px-5 py-2 text-xs font-bold text-bg mt-2"
+                >
+                  KE PROCESSING & REVIEW
+                </button>
+              </div>
             ) : (
+              <div className="p-16 marked-frame bg-surface border border-line text-center flex flex-col items-center gap-3">
+                <Layers className="w-10 h-10 text-action" />
+                <h3 className="text-copy font-bold text-base">Belum Ada Proyek Dipilih</h3>
+                <p className="text-muted text-xs max-w-sm">
+                  Buka tab Home atau pilih proyek dari riwayat untuk masuk ke studio editing klip.
+                </p>
+                <button
+                  onClick={() => navigateTo("home")}
+                  className="btn-action px-5 py-2 text-xs font-bold text-bg mt-2"
+                >
+                  KE TAB HOME
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* VIEW 4: HASIL KLIP (GLOBAL / PERMANENT ALL PROJECTS) */}
+        {activeTab === "res" && (
+          <div className="flex flex-col gap-8">
+            <div className="flex items-center justify-between border-b border-line pb-3 flex-wrap gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Film className="w-5 h-5 text-action" />
+                  <h2 className="text-xl font-extrabold uppercase tracking-tight text-copy">
+                    HASIL KLIP GLOBAL ({finishedClips.length} KLIP)
+                  </h2>
+                </div>
+                <p className="text-xs text-muted">
+                  Katalog permanen seluruh klip final yang sudah diedit dan disimpan dari semua proyek.
+                </p>
+              </div>
+
+              <button
+                onClick={loadFinishedClipsList}
+                className="btn-ghost flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-bold"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-action" />
+                <span>REFRESH KATALOG</span>
+              </button>
+            </div>
+
+            {finishedClips.length === 0 ? (
               <div className="p-16 marked-frame bg-surface border border-line text-center flex flex-col items-center gap-3">
                 <i className="crop-mark crop-tl" />
                 <i className="crop-mark crop-tr" />
                 <i className="crop-mark crop-bl" />
                 <i className="crop-mark crop-br" />
-                <Video className="w-10 h-10 text-action" />
-                <h3 className="text-copy font-bold text-base">Belum Ada Klip yang Dirender</h3>
+                <Film className="w-10 h-10 text-action opacity-60" />
+                <h3 className="text-copy font-bold text-base">Belum Ada Klip Tersimpan</h3>
                 <p className="text-muted text-xs max-w-sm">
-                  Pilih kandidat di tab Processing & Review lalu jalankan render untuk menghasilkan klip 9:16.
+                  Render klip di Processing & Review atau simpan revisi subtitle di tab Editing untuk menyimpannya ke Hasil Klip permanen.
                 </p>
-                {currentJob && (
-                  <button
-                    onClick={() => setActiveTab("proc")}
-                    className="btn-action px-5 py-2 text-xs font-bold text-bg mt-2"
-                  >
-                    KE PROCESSING & REVIEW
-                  </button>
-                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {finishedClips.map((fc) => {
+                  const videoUrl = getFinishedClipVideoUrl(fc.clip_id || fc.id);
+                  const srtUrl = getFinishedClipSrtUrl(fc.clip_id || fc.id);
+                  let wordsPreview = "";
+                  try {
+                    if (fc.subtitles_json) {
+                      const words = JSON.parse(fc.subtitles_json);
+                      wordsPreview = words.slice(0, 10).map((w: any) => w.text).join(" ");
+                    }
+                  } catch {
+                    // ignore
+                  }
+
+                  return (
+                    <div
+                      key={fc.id}
+                      className="marked-card p-4 bg-surface border border-line hover:border-action/60 transition-all flex flex-col justify-between gap-4 shadow-xl"
+                    >
+                      <i className="crop-mark crop-tl" />
+                      <i className="crop-mark crop-tr" />
+                      <i className="crop-mark crop-bl" />
+                      <i className="crop-mark crop-br" />
+
+                      {/* Video Player 9:16 */}
+                      <div className="w-full aspect-[9/16] bg-bg border-x-4 border-dashed border-line relative overflow-hidden flex items-center justify-center">
+                        <video
+                          src={videoUrl}
+                          controls
+                          playsInline
+                          preload="metadata"
+                          className="w-full h-full object-contain"
+                        />
+                      </div>
+
+                      {/* Metadata */}
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center justify-between text-[10px] font-mono text-muted">
+                          <span className="font-bold text-action truncate max-w-[200px]">
+                            {fc.project_title || "ClipForge Proyek"}
+                          </span>
+                          <span>{fc.duration_s?.toFixed(1) || "--"}s</span>
+                        </div>
+
+                        {wordsPreview && (
+                          <p className="text-xs text-muted line-clamp-2 italic bg-card p-2 border border-line/60">
+                            &ldquo;{wordsPreview}...&rdquo;
+                          </p>
+                        )}
+
+                        <div className="flex items-center justify-between text-[10px] font-mono text-muted pt-1 border-t border-line">
+                          <span>{new Date(fc.updated_at).toLocaleDateString()}</span>
+                          <span className="text-green-400 font-bold flex items-center gap-1">
+                            <CheckCircle className="w-3 h-3" /> SIAP UPLOAD
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-line text-xs font-mono">
+                        <button
+                          onClick={() => handleOpenFinishedInEditor(fc)}
+                          className="btn-action flex items-center gap-1 px-3 py-1.5 text-[11px] font-bold text-bg"
+                        >
+                          <Edit3 className="w-3 h-3" />
+                          <span>Edit Ulang</span>
+                        </button>
+
+                        <div className="flex items-center gap-1.5">
+                          <a
+                            href={srtUrl}
+                            download={`clip-${(fc.clip_id || fc.id).slice(0, 8)}.srt`}
+                            className="btn-ghost p-1.5 text-copy hover:text-action"
+                            title="Download SRT"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </a>
+                          <a
+                            href={videoUrl}
+                            download={`clip-${(fc.clip_id || fc.id).slice(0, 8)}.mp4`}
+                            className="btn-ghost p-1.5 text-copy hover:text-action"
+                            title="Download MP4"
+                          >
+                            <Video className="w-3.5 h-3.5" />
+                          </a>
+                          <button
+                            onClick={(e) => handleDeleteFinishedClip(fc.clip_id || fc.id, e)}
+                            className="btn-ghost p-1.5 text-muted hover:text-err"
+                            title="Hapus dari Hasil Klip"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
         )}
 
-        {/* VIEW 4: GOLDEN SET BENCHMARK */}
+        {/* VIEW 5: GOLDEN SET BENCHMARK */}
         {activeTab === "eval" && <EvaluationView />}
-
-        {/* VIEW 5: SPEC & DESIGN TOKENS */}
-        {activeTab === "spec" && (
-          <div className="marked-frame border border-line bg-surface p-6 shadow-2xl flex flex-col gap-8">
-            <i className="crop-mark crop-tl" />
-            <i className="crop-mark crop-tr" />
-            <i className="crop-mark crop-bl" />
-            <i className="crop-mark crop-br" />
-
-            <div className="border-b border-line pb-3">
-              <h2 className="text-xl font-extrabold uppercase tracking-tight text-copy">
-                DESIGN SYSTEM • CUTTING ROOM
-              </h2>
-              <p className="text-xs text-muted">
-                Palet warna datar, tanpa gradien halus, terinspirasi meja potong seluloid film analog.
-              </p>
-            </div>
-
-            {/* Palet Warna */}
-            <div className="flex flex-col gap-3">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-copy">Palet Warna</h3>
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 font-mono text-xs">
-                {[
-                  { name: "Background", hex: "#0A0A0A" },
-                  { name: "Surface", hex: "#141414" },
-                  { name: "Card", hex: "#1C1C1C" },
-                  { name: "Border", hex: "#2A2A2A" },
-                  { name: "Orange", hex: "#FF6A00" },
-                  { name: "Orange Hover", hex: "#FF8533" },
-                  { name: "Teks Putih", hex: "#F5F5F5" },
-                  { name: "Teks Redup", hex: "#9A9A9A" },
-                ].map((c) => (
-                  <div key={c.name} className="border border-line bg-card p-2 flex flex-col gap-2">
-                    <div className="h-12 w-full border border-line/40" style={{ background: c.hex }} />
-                    <div>
-                      <div className="font-bold text-[11px] text-copy">{c.name}</div>
-                      <div className="text-[10px] text-muted">{c.hex}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Elemen Khas Cutting Room */}
-            <div className="flex flex-col gap-3 text-xs text-muted">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-copy">
-                Elemen Khas Meja Potong
-              </h3>
-              <ul className="list-disc list-inside flex flex-col gap-2">
-                <li>
-                  <strong className="text-copy">Crop Marks:</strong> Setiap kartu memiliki siku 4 sudut berukuran 14px yang menyala oranye saat hover.
-                </li>
-                <li>
-                  <strong className="text-copy">Film Perforations:</strong> Sisi kiri dan kanan thumbnail bergaris putus-putus menyerupai lubang roda seluloid film.
-                </li>
-                <li>
-                  <strong className="text-copy">Skor Raksasa:</strong> Angka penilaian 88px–120px tabular oranye, sengaja diposisikan terpotong tepi sudut kartu.
-                </li>
-                <li>
-                  <strong className="text-copy">Running Timecode:</strong> Ticker 24fps berjalan di header atas menyerupai timecode deck tape analog.
-                </li>
-                <li>
-                  <strong className="text-copy">Clapper Slate:</strong> Container input berbentuk papan klaker sutradara dengan Scene, Take, dan tombol oranye bayangan offset solid.
-                </li>
-              </ul>
-            </div>
-          </div>
-        )}
       </main>
 
       {/* Floating Bottom Toast */}

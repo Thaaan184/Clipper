@@ -102,6 +102,7 @@ export interface Clip {
   render_params: Record<string, unknown>;
   qa?: QAInfo | null;
   created_at: string;
+  project_title?: string | null;
 }
 
 export interface SubtitleWord {
@@ -116,6 +117,22 @@ export interface SubtitleTrack {
   clip_id: string;
   revision: number;
   words: SubtitleWord[];
-  style: string;
+  style: string | { preset?: string };
   language?: string;
+}
+
+export interface FinishedClip {
+  id: string;
+  clip_id: string;
+  job_id?: string | null;
+  project_title?: string | null;
+  video_path: string;
+  thumb_path?: string | null;
+  srt_path?: string | null;
+  duration_s?: number | null;
+  width: number;
+  height: number;
+  subtitles_json?: string | null;
+  created_at: string;
+  updated_at: string;
 }

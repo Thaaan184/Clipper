@@ -228,6 +228,21 @@ async def delete_job(
     if active_task and not active_task.done():
         active_task.cancel()
 
+    # Ensure any finished clips belonging to this job are permanently preserved in finished_clips
+    try:
+        from clipforge.api.routes.clips import sync_finished_clip
+
+        async with db.execute(
+            "SELECT id FROM clips WHERE job_id = ? AND status = 'done'", (job_id,)
+        ) as cur:
+            c_rows = await cur.fetchall()
+            for c_row in c_rows:
+                await sync_finished_clip(db, c_row[0])
+    except Exception as exc:
+        logger.warning(
+            "sync_finished_clips_before_delete_job_failed", job_id=job_id, error=str(exc)
+        )
+
     # Clean up disk files
     try:
         import shutil
@@ -251,8 +266,9 @@ async def delete_job(
     )
     await db.execute("DELETE FROM clips WHERE job_id = ?", (job_id,))
     await db.execute("DELETE FROM candidates WHERE job_id = ?", (job_id,))
-    await db.execute("DELETE FROM timeline_signals WHERE job_id = ?", (job_id,))
-    await db.execute("DELETE FROM job_events WHERE job_id = ?", (job_id,))
+    await db.execute("DELETE FROM stage_runs WHERE job_id = ?", (job_id,))
+    await db.execute("DELETE FROM events WHERE job_id = ?", (job_id,))
+    await db.execute("DELETE FROM feedback WHERE job_id = ?", (job_id,))
     await db.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
     await db.commit()
 
