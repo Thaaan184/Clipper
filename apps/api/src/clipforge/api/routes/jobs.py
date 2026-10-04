@@ -403,6 +403,7 @@ async def trigger_job_render(
                     stage_fn=stage_render_clips,
                     stage_input=stage_input,
                     progress=1.0,
+                    force=True,
                 )
                 if success:
                     await transition_job_status(task_db, job_id, JobStatus.DONE, progress=1.0)

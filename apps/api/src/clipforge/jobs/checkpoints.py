@@ -42,7 +42,11 @@ class CheckpointManager:
             if data.get("input_hash") != input_hash:
                 return False
 
-            for rel_output in data.get("outputs", []):
+            outputs = data.get("outputs", [])
+            if stage == "render_clips" and not outputs:
+                return False
+
+            for rel_output in outputs:
                 out_path = self.job_dir / rel_output
                 if not out_path.exists():
                     return False

@@ -52,6 +52,7 @@ class JobEngine:
         ],
         stage_input: dict[str, Any],
         progress: float,
+        force: bool = False,
     ) -> bool:
         """Run a single stage with checkpoint skip check, stage_runs logging, and cancellation check."""
         if self.is_cancelled(job_id):
@@ -62,7 +63,7 @@ class JobEngine:
         input_hash = compute_hash(stage_input)
 
         # Idempotent skip if checkpoint already satisfied
-        if ckpt.is_stage_completed(stage.value, input_hash):
+        if not force and ckpt.is_stage_completed(stage.value, input_hash):
             logger.info("Stage checkpoint valid, skipping", job_id=job_id, stage=stage.value)
             await self._record_stage_run(
                 db=db,
