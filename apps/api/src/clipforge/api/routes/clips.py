@@ -109,33 +109,34 @@ async def sync_finished_clip(db: aiosqlite.Connection, clip_id: str) -> dict[str
         duration_s,
         j_title,
     ) = row
-    if not video_path:
-        return None
-
-    orig_video = Path(video_path)
-    if not orig_video.exists():
-        return None
 
     # Permanent storage directory for finished clips
     perm_dir = settings.data_dir / "finished_clips" / clip_id
     perm_dir.mkdir(parents=True, exist_ok=True)
 
-    perm_video = perm_dir / f"{clip_id}.mp4"
-    try:
-        if not perm_video.exists() or orig_video.stat().st_mtime > perm_video.stat().st_mtime:
-            shutil.copy2(orig_video, perm_video)
-    except Exception as exc:
-        logger.warning("copy_finished_video_failed", clip_id=clip_id, error=str(exc))
+    final_video_path = video_path or ""
+    if video_path:
+        orig_video = Path(video_path)
+        if orig_video.exists():
+            perm_video = perm_dir / f"{clip_id}.mp4"
+            try:
+                if (
+                    not perm_video.exists()
+                    or orig_video.stat().st_mtime > perm_video.stat().st_mtime
+                ):
+                    shutil.copy2(orig_video, perm_video)
+                final_video_path = str(perm_video)
+            except Exception as exc:
+                logger.warning("copy_finished_video_failed", clip_id=clip_id, error=str(exc))
 
-    final_video_path = str(perm_video if perm_video.exists() else orig_video)
-
-    perm_srt = perm_dir / f"{clip_id}.srt"
+    final_srt_path = srt_path or ""
     if srt_path and Path(srt_path).exists():
+        perm_srt = perm_dir / f"{clip_id}.srt"
         try:
             shutil.copy2(Path(srt_path), perm_srt)
+            final_srt_path = str(perm_srt)
         except Exception:
             pass
-    final_srt_path = str(perm_srt if perm_srt.exists() else (srt_path or ""))
 
     # Fetch latest subtitle words
     words_json = "[]"

@@ -728,6 +728,14 @@ async def stage_render_clips(
         # Mark candidate as rendered
         await db.execute("UPDATE candidates SET status = 'rendered' WHERE id = ?", (cand_id,))
 
+        # Auto-sync to permanent finished_clips repository
+        try:
+            from clipforge.api.routes.clips import sync_finished_clip
+
+            await sync_finished_clip(db, clip_id)
+        except Exception as exc:
+            logger.warning("auto_sync_finished_clip_failed", clip_id=clip_id, error=str(exc))
+
     await db.commit()
 
     metrics = {
