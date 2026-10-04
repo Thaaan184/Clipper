@@ -211,6 +211,55 @@ async def cancel_job(
     return {"status": JobStatus.CANCELLED.value, "message": "Job cancelled successfully"}
 
 
+@router.delete("/{job_id}", status_code=status.HTTP_200_OK)
+async def delete_job(
+    job_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> dict[str, str]:
+    """Delete a job, its database records, and its files on disk."""
+    async with db.execute("SELECT id FROM jobs WHERE id = ?", (job_id,)) as cursor:
+        row = await cursor.fetchone()
+        if not row:
+            raise JobNotFoundError(f"Job {job_id} not found")
+
+    # Cancel active tasks if running
+    engine.request_cancel(job_id)
+    active_task = engine._active_tasks.pop(f"render_{job_id}", None)
+    if active_task and not active_task.done():
+        active_task.cancel()
+
+    # Clean up disk files
+    try:
+        import shutil
+
+        from clipforge.jobs.pipeline import get_job_dir
+
+        job_dir = get_job_dir(job_id)
+        if job_dir.exists():
+            shutil.rmtree(job_dir, ignore_errors=True)
+    except Exception as exc:
+        logger.warning("failed_to_delete_job_files", job_id=job_id, error=str(exc))
+
+    # Clean up DB records in child tables
+    await db.execute(
+        "DELETE FROM subtitle_words WHERE track_id IN (SELECT id FROM subtitle_tracks WHERE clip_id IN (SELECT id FROM clips WHERE job_id = ?))",
+        (job_id,),
+    )
+    await db.execute(
+        "DELETE FROM subtitle_tracks WHERE clip_id IN (SELECT id FROM clips WHERE job_id = ?)",
+        (job_id,),
+    )
+    await db.execute("DELETE FROM clips WHERE job_id = ?", (job_id,))
+    await db.execute("DELETE FROM candidates WHERE job_id = ?", (job_id,))
+    await db.execute("DELETE FROM timeline_signals WHERE job_id = ?", (job_id,))
+    await db.execute("DELETE FROM job_events WHERE job_id = ?", (job_id,))
+    await db.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+    await db.commit()
+
+    return {"status": "deleted", "job_id": job_id}
+
+
+
 @router.get("/{job_id}/events")
 async def stream_job_events(
     job_id: str,
@@ -340,7 +389,7 @@ async def trigger_job_render(
         "subtitle_style": params.get("subtitle_style", "classic_white"),
     }
 
-    await transition_job_status(db, job_id, JobStatus.RENDERING)
+    await transition_job_status(db, job_id, JobStatus.RENDERING, progress=0.80)
 
     async def _run_render_task() -> None:
         from clipforge.db.connection import get_db_connection

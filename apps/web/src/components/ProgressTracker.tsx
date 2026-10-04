@@ -1,11 +1,12 @@
 import React from "react";
 import { Job } from "../types";
-import { AlertCircle, RefreshCw } from "lucide-react";
+import { AlertCircle, RefreshCw, Trash2 } from "lucide-react";
 
 interface ProgressTrackerProps {
   job: Job;
   onCancel?: () => void;
   onRetry?: () => void;
+  onDelete?: () => void;
 }
 
 const STAGES = [
@@ -24,6 +25,7 @@ export const ProgressTracker: React.FC<ProgressTrackerProps> = ({
   job,
   onCancel,
   onRetry,
+  onDelete,
 }) => {
   const isFailed = job.status === "failed";
   const isCancelled = job.status === "cancelled";
@@ -31,20 +33,21 @@ export const ProgressTracker: React.FC<ProgressTrackerProps> = ({
   const isReview = job.status === "awaiting_review";
   const isRendering = job.status === "rendering";
 
-  const pct = Math.round(Math.max(0, Math.min(100, (job.progress || 0) * 100)));
+  let pct = Math.round(Math.max(0, Math.min(100, (job.progress || 0) * 100)));
+  if (isRendering && pct < 80) pct = 80;
 
   // Identify active stage index
   let activeIdx = 0;
   if (job.status === "created") {
     activeIdx = 0;
+  } else if (isRendering) {
+    activeIdx = 7;
   } else {
     const idx = STAGES.findIndex((s) => s.id === job.status);
     if (idx !== -1) {
       activeIdx = idx;
     } else if (isReview) {
       activeIdx = 6;
-    } else if (isRendering) {
-      activeIdx = 7;
     } else if (isDone) {
       activeIdx = 8;
     }
@@ -60,7 +63,7 @@ export const ProgressTracker: React.FC<ProgressTrackerProps> = ({
       <i className="crop-mark crop-br" />
 
       {/* Header bar */}
-      <div className="flex items-center justify-between border-b border-line pb-4">
+      <div className="flex items-center justify-between border-b border-line pb-4 flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <div className="w-2.5 h-2.5 bg-action" />
           <h2 className="font-extrabold text-sm md:text-base tracking-wider uppercase text-copy">
@@ -88,6 +91,16 @@ export const ProgressTracker: React.FC<ProgressTrackerProps> = ({
               className="btn-ghost px-3 py-1 text-xs font-semibold text-err border-err/40 hover:border-err"
             >
               Batalkan Job
+            </button>
+          )}
+
+          {onDelete && (
+            <button
+              onClick={onDelete}
+              className="btn-ghost px-3 py-1 text-xs font-semibold text-err border-err/40 hover:border-err flex items-center gap-1.5"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Hapus Proyek</span>
             </button>
           )}
         </div>
@@ -194,6 +207,8 @@ export const ProgressTracker: React.FC<ProgressTrackerProps> = ({
           <h3 className="text-xl md:text-2xl font-bold text-copy">
             {isFailed
               ? "Eksekusi Render Mengalami Hambatan"
+              : isRendering
+              ? "Sedang Merender Klip 9:16 & Subtitle..."
               : isDone
               ? "Semua Klip Selesai Dirender!"
               : currentStageInfo.label}
@@ -202,6 +217,8 @@ export const ProgressTracker: React.FC<ProgressTrackerProps> = ({
           <p className="text-muted text-xs md:text-sm">
             {isFailed
               ? job.error_message || "Terjadi kesalahan saat memproses tahap ini."
+              : isRendering
+              ? "FFmpeg merender reframe blur-pillarbox, normalisasi audio EBU R128 (-14 LUFS), dan libass kinetic subtitles."
               : currentStageInfo.desc}
           </p>
 

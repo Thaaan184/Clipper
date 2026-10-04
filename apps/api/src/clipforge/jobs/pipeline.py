@@ -554,15 +554,32 @@ async def stage_render_clips(
     subtitle_style = stage_input.get("subtitle_style", "classic_white")
 
     # Fetch kept or top candidates from DB
-    query = """
-        SELECT id, rank, COALESCE(user_start_s, start_s), COALESCE(user_end_s, end_s), title, category
-        FROM candidates
-        WHERE job_id = ? AND status != 'rejected'
-        ORDER BY rank ASC, final_score DESC
-        LIMIT ?
-    """
+    async with db.execute(
+        "SELECT COUNT(*) FROM candidates WHERE job_id = ? AND status = 'kept'", (job_id,)
+    ) as cur:
+        row = await cur.fetchone()
+        kept_count = row[0] if row else 0
+
+    if kept_count > 0:
+        query = """
+            SELECT id, rank, COALESCE(user_start_s, start_s), COALESCE(user_end_s, end_s), title, category
+            FROM candidates
+            WHERE job_id = ? AND status = 'kept'
+            ORDER BY rank ASC, final_score DESC
+        """
+        params: tuple[Any, ...] = (job_id,)
+    else:
+        query = """
+            SELECT id, rank, COALESCE(user_start_s, start_s), COALESCE(user_end_s, end_s), title, category
+            FROM candidates
+            WHERE job_id = ? AND status != 'rejected'
+            ORDER BY rank ASC, final_score DESC
+            LIMIT ?
+        """
+        params = (job_id, target_count)
+
     candidates_to_render = []
-    async with db.execute(query, (job_id, target_count)) as cur:
+    async with db.execute(query, params) as cur:
         async for r in cur:
             st = float(r[2])
             en = float(r[3])
@@ -582,8 +599,17 @@ async def stage_render_clips(
     rendered_files: list[str] = []
     qa_passed_count = 0
     style_preset = load_style_preset(subtitle_style)
+    total_candidates = len(candidates_to_render)
 
-    for cand in candidates_to_render:
+    for idx, cand in enumerate(candidates_to_render):
+        # Progressively update job render percentage: 0.80 -> 0.98
+        current_pct = round(0.80 + 0.18 * (idx / max(1, total_candidates)), 2)
+        await db.execute(
+            "UPDATE jobs SET progress = ?, updated_at = ? WHERE id = ?",
+            (current_pct, datetime.now(UTC).isoformat(), job_id),
+        )
+        await db.commit()
+
         cand_id = cand["id"]
         clip_id = str(uuid.uuid4())
         clip_folder = clips_dir / clip_id

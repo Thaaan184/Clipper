@@ -76,6 +76,11 @@ async def transition_job_status(
     fields = ["status = ?", "updated_at = ?"]
     values: list[object] = [new_status.value, now_iso]
 
+    if new_status in {JobStatus.RUNNING, JobStatus.RENDERING, JobStatus.AWAITING_REVIEW}:
+        fields.append("error_code = NULL")
+        fields.append("error_message = NULL")
+        fields.append("finished_at = NULL")
+
     if stage is not None:
         fields.append("stage = ?")
         values.append(stage)

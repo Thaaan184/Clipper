@@ -69,6 +69,15 @@ export async function cancelJob(jobId: string): Promise<void> {
   }
 }
 
+export async function deleteJob(jobId: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/jobs/${jobId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to delete job ${jobId}`);
+  }
+}
+
 export async function getTimeline(jobId: string): Promise<TimelineData> {
   const res = await fetch(`${API_BASE}/api/jobs/${jobId}/timeline`);
   if (!res.ok) {

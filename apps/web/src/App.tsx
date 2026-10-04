@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   cancelJob,
   createJob,
+  deleteJob,
   getCandidates,
   getClip,
   getClipSubtitles,
@@ -29,6 +30,7 @@ import {
   Play,
   RefreshCw,
   Sparkles,
+  Trash2,
   Video,
 } from "lucide-react";
 
@@ -192,6 +194,28 @@ export default function App(): JSX.Element {
     }
   };
 
+  const handleDeleteJob = async (jobId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!confirm(`Hapus proyek ${jobId.slice(0, 8)} secara permanen dari server?`)) {
+      return;
+    }
+    try {
+      await deleteJob(jobId);
+      setRecentJobs((prev) => prev.filter((j) => j.id !== jobId));
+      if (currentJob?.id === jobId) {
+        setCurrentJob(null);
+        setTimeline(null);
+        setCandidates([]);
+        setRenderedClips([]);
+        setActiveClip(null);
+        setActiveTab("home");
+      }
+      showToast("Proyek berhasil dihapus.");
+    } catch (err: any) {
+      showToast(`Gagal menghapus proyek: ${err.message || err}`);
+    }
+  };
+
   const handleUpdateStatus = async (
     candId: string,
     status: "kept" | "rejected"
@@ -230,7 +254,13 @@ export default function App(): JSX.Element {
     setIsRendering(true);
     try {
       await triggerRender(currentJob.id);
-      setCurrentJob({ ...currentJob, status: "rendering" });
+      setCurrentJob({
+        ...currentJob,
+        status: "rendering",
+        progress: 0.80,
+        error_code: null,
+        error_message: null,
+      });
       showToast("Batch render 9:16 dimulai untuk kandidat lolos kurasi!");
     } catch (err: any) {
       showToast(`Gagal trigger render: ${err.message || err}`);
@@ -404,9 +434,20 @@ export default function App(): JSX.Element {
 
                       <div className="flex items-center justify-between text-xs text-muted font-mono pt-1">
                         <span>{new Date(j.created_at).toLocaleDateString()}</span>
-                        <span className="text-action font-bold flex items-center gap-1">
-                          Buka Workspace <ArrowRight className="w-3 h-3" />
-                        </span>
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteJob(j.id, e)}
+                            className="text-muted hover:text-err p-1 transition-colors flex items-center gap-1"
+                            title="Hapus Proyek"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span className="text-[10px] hidden sm:inline">Hapus</span>
+                          </button>
+                          <span className="text-action font-bold flex items-center gap-1">
+                            Buka Workspace <ArrowRight className="w-3 h-3" />
+                          </span>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -426,6 +467,7 @@ export default function App(): JSX.Element {
                   job={currentJob}
                   onCancel={handleCancelJob}
                   onRetry={handleTriggerRender}
+                  onDelete={() => handleDeleteJob(currentJob.id)}
                 />
 
                 {/* Multi-Lane Timeline */}
