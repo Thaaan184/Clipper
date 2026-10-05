@@ -98,7 +98,7 @@ def transcribe_candidate_slice(
         segments, info = model.transcribe(
             audio_arr,
             word_timestamps=True,
-            vad_filter=True,
+            vad_filter=False,
             beam_size=3,
         )
 
@@ -153,8 +153,7 @@ def transcribe_clip_media(
         segments, _info = model.transcribe(
             str(media_path),
             word_timestamps=True,
-            vad_filter=True,
-            vad_parameters={"min_silence_duration_ms": 500},
+            vad_filter=False,
             beam_size=3,
         )
 
