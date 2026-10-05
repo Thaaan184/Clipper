@@ -262,21 +262,6 @@ async def list_finished_clips(
     db: aiosqlite.Connection = Depends(get_db),
 ) -> list[FinishedClipResponse]:
     """Retrieve all permanently finished and saved editorial clips."""
-    # Auto-sync rendered clips with status 'done' that have valid video files
-    async with db.execute(
-        "SELECT id FROM clips WHERE status = 'done' AND video_path IS NOT NULL"
-    ) as cur:
-        done_clips = await cur.fetchall()
-        for d in done_clips:
-            async with db.execute(
-                "SELECT id FROM finished_clips WHERE clip_id = ?", (d[0],)
-            ) as check_cur:
-                if not await check_cur.fetchone():
-                    try:
-                        await sync_finished_clip(db, d[0])
-                    except Exception as e:
-                        logger.warning("auto_sync_finished_clip_error", clip_id=d[0], error=str(e))
-
     query = """
         SELECT id, clip_id, job_id, project_title, video_path, thumb_path, srt_path,
                duration_s, width, height, subtitles_json, created_at, updated_at
@@ -362,10 +347,19 @@ async def stream_finished_clip_srt(
 async def delete_finished_clip(
     clip_id: str, db: aiosqlite.Connection = Depends(get_db)
 ) -> dict[str, str]:
-    """Delete a finished clip from the global repository."""
-    perm_dir = settings.data_dir / "finished_clips" / clip_id
-    if perm_dir.exists():
-        shutil.rmtree(perm_dir, ignore_errors=True)
+    """Delete a finished clip permanently from the global repository."""
+    async with db.execute(
+        "SELECT id, clip_id FROM finished_clips WHERE id = ? OR clip_id = ?",
+        (clip_id, clip_id),
+    ) as cur:
+        row = await cur.fetchone()
+
+    if row:
+        rec_id, target_clip_id = row[0], row[1]
+        for cid in filter(None, [rec_id, target_clip_id, clip_id]):
+            perm_dir = settings.data_dir / "finished_clips" / cid
+            if perm_dir.exists():
+                shutil.rmtree(perm_dir, ignore_errors=True)
 
     await db.execute("DELETE FROM finished_clips WHERE id = ? OR clip_id = ?", (clip_id, clip_id))
     await db.commit()

@@ -9,6 +9,7 @@ import structlog
 
 from clipforge.asr.models import CandidateTranscript, WordTimestamp
 from clipforge.fusion.models import CandidateWindow
+from clipforge.subtitles.models import SubtitleWord
 
 logger = structlog.get_logger(__name__)
 
@@ -132,3 +133,49 @@ def transcribe_candidate_slice(
     except Exception as exc:
         logger.error("targeted_transcription_error", candidate_id=cand.id, error=str(exc))
         return CandidateTranscript(candidate_id=cand.id)
+
+
+def transcribe_clip_media(
+    media_path: Path,
+    model_name: str = "base",
+    device: str = "auto",
+    compute_type: str = "auto",
+) -> list[SubtitleWord]:
+    """
+    Directly transcribe a rendered/cut raw clip media file (e.g. raw.mp4)
+    to produce ground-truth word-level timestamps in the clip's native timeline (0.0s = start of clip).
+    """
+    if not media_path.exists() or media_path.stat().st_size < 1000:
+        return []
+
+    try:
+        model = get_whisper_model(model_name, device, compute_type)
+        segments, _info = model.transcribe(
+            str(media_path),
+            word_timestamps=True,
+            vad_filter=True,
+            vad_parameters={"min_silence_duration_ms": 500},
+            beam_size=3,
+        )
+
+        words: list[SubtitleWord] = []
+        word_idx = 0
+        for seg in segments:
+            if seg.words:
+                for w in seg.words:
+                    clean_w = w.word.strip()
+                    if clean_w:
+                        words.append(
+                            SubtitleWord(
+                                idx=word_idx,
+                                start_s=round(float(w.start), 3),
+                                end_s=round(max(float(w.start) + 0.04, float(w.end)), 3),
+                                text=clean_w,
+                                confidence=round(float(w.probability), 3),
+                            )
+                        )
+                        word_idx += 1
+        return words
+    except Exception as exc:
+        logger.error("transcribe_clip_media_failed", path=str(media_path), error=str(exc))
+        return []

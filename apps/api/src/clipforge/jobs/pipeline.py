@@ -1,5 +1,6 @@
 """Pipeline stage execution implementations for Ingest, Signals, and Fusion."""
 
+import asyncio
 import json
 import uuid
 from datetime import UTC, datetime
@@ -11,7 +12,7 @@ import numpy as np
 import structlog
 
 from clipforge.asr.models import CandidateTranscript
-from clipforge.asr.whisper import transcribe_candidate_slice
+from clipforge.asr.whisper import transcribe_candidate_slice, transcribe_clip_media
 from clipforge.boundaries.snap import snap_boundaries_to_words
 from clipforge.core.config import settings
 from clipforge.fusion.candidates import make_candidates
@@ -658,29 +659,54 @@ async def stage_render_clips(
             await db.commit()
             continue
 
-        # 2. Prepare words and kinetic subtitle script
+        # 2. Extract ground-truth word timestamps directly from raw_video
+        raw_words: list[SubtitleWord] = []
+        try:
+            raw_words = await asyncio.to_thread(
+                transcribe_clip_media,
+                raw_video,
+                settings.whisper_model,
+                settings.whisper_device,
+                settings.whisper_compute,
+            )
+        except Exception as exc:
+            logger.warning("transcribe_raw_video_failed", clip_id=clip_id, error=str(exc))
+
         words_for_clip: list[SubtitleWord] = []
-        tr_file = transcripts_dir / f"{cand_id}.json"
-        if tr_file.exists():
-            try:
-                tr_data = CandidateTranscript.model_validate_json(
-                    tr_file.read_text(encoding="utf-8")
-                )
-                for w in tr_data.words:
-                    # Convert to clip_s coordinates: 0.0s is start of clip
-                    clip_start = max(0.0, w.start_s - cand["start_s"])
-                    clip_end = max(clip_start + 0.04, w.end_s - cand["start_s"])
-                    words_for_clip.append(
-                        SubtitleWord(
-                            idx=w.idx,
-                            start_s=round(clip_start, 3),
-                            end_s=round(clip_end, 3),
-                            text=w.text,
-                            confidence=w.confidence,
-                        )
+        if raw_words:
+            words_for_clip = raw_words
+        else:
+            # Fallback to candidate transcript if raw_video had no words or transcription failed
+            tr_file = transcripts_dir / f"{cand_id}.json"
+            if tr_file.exists():
+                try:
+                    tr_data = CandidateTranscript.model_validate_json(
+                        tr_file.read_text(encoding="utf-8")
                     )
-            except Exception as exc:
-                logger.warning("transcript_parse_for_clip_failed", clip_id=clip_id, error=str(exc))
+                    c_start = cand["start_s"]
+                    c_end = cand["end_s"]
+                    for w in tr_data.words:
+                        # Exclude words completely outside clip
+                        if w.end_s <= c_start or w.start_s >= c_end:
+                            continue
+                        rel_start = max(0.0, round(w.start_s - c_start, 3))
+                        rel_end = min(
+                            cand["duration_s"],
+                            max(rel_start + 0.04, round(w.end_s - c_start, 3)),
+                        )
+                        words_for_clip.append(
+                            SubtitleWord(
+                                idx=len(words_for_clip),
+                                start_s=rel_start,
+                                end_s=rel_end,
+                                text=w.text,
+                                confidence=w.confidence,
+                            )
+                        )
+                except Exception as exc:
+                    logger.warning(
+                        "fallback_transcript_parse_failed", clip_id=clip_id, error=str(exc)
+                    )
 
         val_words = validate_and_normalize_words(words_for_clip, clip_duration_s=cand["duration_s"])
         chunks = create_kinetic_chunks(val_words)
