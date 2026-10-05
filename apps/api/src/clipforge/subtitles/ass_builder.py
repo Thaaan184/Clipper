@@ -71,6 +71,9 @@ def generate_ass_script(
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
     ]
 
+    if style.name.lower() in ("none", "off", "disable", "no_subtitles", "tanpa_subtitle"):
+        return "\n".join(lines) + "\n"
+
     for chunk in chunks:
         words = chunk.words
         if not words:

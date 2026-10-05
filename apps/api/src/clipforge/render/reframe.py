@@ -3,7 +3,7 @@
 
 def build_reframe_filtergraph(
     mode: str = "blur",
-    ass_file: str = "subs.ass",
+    ass_file: str | None = "subs.ass",
     fonts_dir: str = "fonts",
     width: int = 1080,
     height: int = 1920,
@@ -17,10 +17,10 @@ def build_reframe_filtergraph(
       - center: Centered crop 1080x1920.
       - stacked: Game ROI on top, facecam ROI on bottom.
     """
-    ass_filter = f"ass={ass_file}:fontsdir={fonts_dir}"
+    ass_suffix = f",ass={ass_file}:fontsdir={fonts_dir}" if ass_file else ""
 
     if mode == "center":
-        return f"[0:v]scale=-2:{height},crop={width}:{height},format=yuv420p,{ass_filter}[v]"
+        return f"[0:v]scale=-2:{height},crop={width}:{height},format=yuv420p{ass_suffix}[v]"
 
     elif mode == "stacked" and game_roi and face_roi:
         # Normalized coordinates: x, y, w, h in [0.0, 1.0]
@@ -31,7 +31,7 @@ def build_reframe_filtergraph(
             f"[0:v]split=2[game_raw][face_raw];"
             f"[game_raw]crop=iw*{gw:.3f}:ih*{gh:.3f}:iw*{gx:.3f}:ih*{gy:.3f},scale={width}:1200:flags=lanczos[game];"
             f"[face_raw]crop=iw*{fw:.3f}:ih*{fh:.3f}:iw*{fx:.3f}:ih*{fy:.3f},scale={width}:720:flags=lanczos[face];"
-            f"[game][face]vstack=inputs=2,format=yuv420p,{ass_filter}[v]"
+            f"[game][face]vstack=inputs=2,format=yuv420p{ass_suffix}[v]"
         )
 
     else:
@@ -41,5 +41,5 @@ def build_reframe_filtergraph(
             f"[bg_src]scale={width}:{height}:force_original_aspect_ratio=increase,"
             f"crop={width}:{height},gblur=sigma=30,eq=brightness=-0.08[bg];"
             f"[fg_src]scale={width}:-2:flags=lanczos[fg];"
-            f"[bg][fg]overlay=(W-w)/2:(H-h)/2,format=yuv420p,{ass_filter}[v]"
+            f"[bg][fg]overlay=(W-w)/2:(H-h)/2,format=yuv420p{ass_suffix}[v]"
         )

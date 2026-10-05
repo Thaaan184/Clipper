@@ -108,6 +108,10 @@ export default function App(): JSX.Element {
   const [isDeleting, setIsDeleting] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // Render configuration for candidate processing
+  const [renderSubtitleStyle, setRenderSubtitleStyle] = useState<string>("classic_white");
+  const [renderReframeMode, setRenderReframeMode] = useState<string>("blur");
+
   // Live 24fps timecode display
   const [timecode, setTimecode] = useState("00:00:00:00");
 
@@ -446,7 +450,11 @@ export default function App(): JSX.Element {
     try {
       const kept = candidates.filter((c) => c.status === "kept");
       const candIds = kept.length > 0 ? kept.map((c) => c.id) : undefined;
-      await triggerRender(currentJob.id, { candidate_ids: candIds });
+      await triggerRender(currentJob.id, {
+        candidate_ids: candIds,
+        subtitle_style: renderSubtitleStyle,
+        reframe_mode: renderReframeMode,
+      });
       setCurrentJob({
         ...currentJob,
         status: "rendering",
@@ -454,7 +462,11 @@ export default function App(): JSX.Element {
         error_code: null,
         error_message: null,
       });
-      showToast("Batch render 9:16 dimulai untuk kandidat terpilih!");
+      showToast(
+        renderSubtitleStyle === "none"
+          ? "Batch render 9:16 dimulai TANPA SUBTITLE!"
+          : "Batch render 9:16 dimulai untuk kandidat terpilih!"
+      );
     } catch (err: any) {
       showToast(`Gagal trigger render: ${err.message || err}`);
     } finally {
@@ -805,29 +817,65 @@ export default function App(): JSX.Element {
                           KANDIDAT HIGHLIGHT ({candidates.length} MOMEN)
                         </h3>
                         <p className="text-xs text-muted">
-                          Pilih dan kurasi momen terbaik sebelum dibakar ke video 9:16 dan subtitle kinetic.
+                          Pilih dan kurasi momen terbaik sebelum dibakar ke video 9:16 vertikal.
                         </p>
                       </div>
 
-                      <button
-                        onClick={handleTriggerRender}
-                        disabled={isRendering || currentJob.status === "rendering"}
-                        className="btn-action flex items-center gap-2 px-6 py-3 text-xs md:text-sm font-bold text-bg disabled:opacity-50"
-                      >
-                        {isRendering || currentJob.status === "rendering" ? (
-                          <>
-                            <RefreshCw className="w-4 h-4 animate-spin" />
-                            <span>SEDANG RENDERING... ({Math.round((currentJob.progress || 0.8) * 100)}%)</span>
-                          </>
-                        ) : (
-                          <>
-                            <Play className="w-4 h-4 fill-bg" />
-                            <span>
-                              RENDER KANDIDAT TERPILIH ({keptCandidatesCount > 0 ? keptCandidatesCount : candidates.length})
-                            </span>
-                          </>
-                        )}
-                      </button>
+                      <div className="flex items-center gap-3 flex-wrap">
+                        {/* Preset Subtitle Selector */}
+                        <div className="flex items-center gap-2 bg-card border border-line px-3 py-2 text-xs">
+                          <span className="text-muted font-bold uppercase tracking-wider text-[11px]">Subtitle:</span>
+                          <select
+                            value={renderSubtitleStyle}
+                            onChange={(e) => setRenderSubtitleStyle(e.target.value)}
+                            disabled={isRendering || currentJob.status === "rendering"}
+                            className="bg-transparent text-copy text-xs font-semibold focus:outline-none cursor-pointer"
+                          >
+                            <option value="classic_white">Classic White</option>
+                            <option value="hormozi_bold">Hormozi Bold (Kuning)</option>
+                            <option value="fire_orange">Fire Orange</option>
+                            <option value="mrbeast_box">MrBeast Box</option>
+                            <option value="neon_glow">Neon Glow</option>
+                            <option value="minimal_clean">Minimal Clean</option>
+                            <option value="none">Tanpa Subtitle (None)</option>
+                          </select>
+                        </div>
+
+                        {/* Reframe Mode Selector */}
+                        <div className="flex items-center gap-2 bg-card border border-line px-3 py-2 text-xs">
+                          <span className="text-muted font-bold uppercase tracking-wider text-[11px]">Reframe:</span>
+                          <select
+                            value={renderReframeMode}
+                            onChange={(e) => setRenderReframeMode(e.target.value)}
+                            disabled={isRendering || currentJob.status === "rendering"}
+                            className="bg-transparent text-copy text-xs font-semibold focus:outline-none cursor-pointer"
+                          >
+                            <option value="blur">Blur Pillarbox</option>
+                            <option value="center">Center Crop</option>
+                            <option value="stacked">Stacked Cam/Game</option>
+                          </select>
+                        </div>
+
+                        <button
+                          onClick={handleTriggerRender}
+                          disabled={isRendering || currentJob.status === "rendering"}
+                          className="btn-action flex items-center gap-2 px-6 py-2.5 text-xs md:text-sm font-bold text-bg disabled:opacity-50"
+                        >
+                          {isRendering || currentJob.status === "rendering" ? (
+                            <>
+                              <RefreshCw className="w-4 h-4 animate-spin" />
+                              <span>SEDANG RENDERING... ({Math.round((currentJob.progress || 0.8) * 100)}%)</span>
+                            </>
+                          ) : (
+                            <>
+                              <Play className="w-4 h-4 fill-bg" />
+                              <span>
+                                RENDER KANDIDAT TERPILIH ({keptCandidatesCount > 0 ? keptCandidatesCount : candidates.length})
+                              </span>
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">

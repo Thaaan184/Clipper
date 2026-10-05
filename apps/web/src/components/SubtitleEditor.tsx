@@ -104,18 +104,22 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
   const handleRerender = async () => {
     if (
       !confirm(
-        "Re-render video final dengan revisi subtitle ini sekarang?"
+        "Re-render video final dengan konfigurasi & subtitle ini sekarang?"
       )
     ) {
       return;
     }
     setIsRerendering(true);
     try {
+      await updateClipSubtitles(clipId, words, stylePreset);
       await rerenderClip(clipId);
+      try {
+        await saveFinishedClip(clipId);
+      } catch {}
       alert("Re-render berhasil! Video telah diperbarui.");
       if (onClipUpdated) onClipUpdated();
-    } catch (err) {
-      alert(`Gagal re-render: ${err}`);
+    } catch (err: any) {
+      alert(`Gagal re-render: ${err?.message || err}`);
     } finally {
       setIsRerendering(false);
     }
@@ -159,6 +163,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
             <option value="mrbeast_box">MrBeast Box</option>
             <option value="neon_glow">Neon Glow (Cyan)</option>
             <option value="minimal_clean">Minimal Clean</option>
+            <option value="none">Tanpa Subtitle (No Subtitle)</option>
           </select>
         </div>
 

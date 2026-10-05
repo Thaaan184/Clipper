@@ -611,19 +611,30 @@ async def preview_subtitle_frame(
             raise HTTPException(status_code=404, detail="Source video for preview not found")
 
     preset_name = _normalize_style_preset(payload.style_preset)
-    style_preset = load_style_preset(preset_name)
+    has_subtitles = preset_name.lower() not in (
+        "none",
+        "off",
+        "disable",
+        "no_subtitles",
+        "tanpa_subtitle",
+    )
 
-    if payload.words is not None:
-        words = validate_and_normalize_words(payload.words, clip_duration_s=60.0)
-    else:
-        # Load from current subs.ass if exists or DB
-        words = []
+    preview_ass: Path | None = None
+    if has_subtitles:
+        style_preset = load_style_preset(preset_name)
 
-    chunks = create_kinetic_chunks(words)
-    ass_content = generate_ass_script(chunks, style=style_preset)
+        if payload.words is not None:
+            words = validate_and_normalize_words(payload.words, clip_duration_s=60.0)
+        else:
+            # Load from current subs.ass if exists or DB
+            words = []
 
-    preview_ass = clip_dir / "preview.ass"
-    preview_ass.write_text(ass_content, encoding="utf-8")
+        chunks = create_kinetic_chunks(words)
+        ass_content = generate_ass_script(chunks, style=style_preset)
+
+        p_ass = clip_dir / "preview.ass"
+        p_ass.write_text(ass_content, encoding="utf-8")
+        preview_ass = p_ass
 
     out_png = clip_dir / "preview.png"
     success = render_subtitle_preview_frame(
@@ -659,16 +670,45 @@ async def rerender_clip(
     raw_video = clip_dir / "raw.mp4"
     ass_file = clip_dir / "subs.ass"
 
-    if not raw_video.exists() or not ass_file.exists():
-        raise HTTPException(status_code=400, detail="Missing raw.mp4 or subs.ass for re-render")
-
     r_params = json.loads(r_params_str) if r_params_str else {}
     mode = r_params.get("reframe_mode", "blur")
+
+    # Check latest subtitle track style
+    preset_name = "classic_white"
+    async with db.execute(
+        "SELECT style_json FROM subtitle_tracks WHERE clip_id = ? ORDER BY revision DESC LIMIT 1",
+        (clip_id,),
+    ) as cur:
+        st_row = await cur.fetchone()
+        if st_row and st_row[0]:
+            try:
+                style_data = json.loads(st_row[0])
+                if isinstance(style_data, dict) and style_data.get("preset"):
+                    preset_name = str(style_data["preset"])
+                elif isinstance(style_data, str):
+                    preset_name = style_data
+            except Exception:
+                pass
+        else:
+            preset_name = r_params.get("subtitle_style", "classic_white")
+
+    has_subtitles = preset_name.lower() not in (
+        "none",
+        "off",
+        "disable",
+        "no_subtitles",
+        "tanpa_subtitle",
+    )
+
+    if not raw_video.exists():
+        raise HTTPException(status_code=400, detail="Missing raw.mp4 for re-render")
+    if has_subtitles and not ass_file.exists():
+        raise HTTPException(status_code=400, detail="Missing subs.ass for re-render")
 
     render_result = render_single_clip(
         clip_dir=clip_dir,
         raw_video=raw_video,
-        ass_path=ass_file,
+        ass_path=ass_file if has_subtitles else None,
         mode=mode,
     )
 

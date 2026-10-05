@@ -12,9 +12,9 @@ logger = structlog.get_logger(__name__)
 
 def render_subtitle_preview_frame(
     raw_video: Path,
-    ass_path: Path,
-    output_png: Path,
-    t_s: float,
+    ass_path: Path | None = None,
+    output_png: Path = Path("preview.png"),
+    t_s: float = 1.0,
     mode: str = "blur",
     fonts_dir: Path | None = None,
 ) -> bool:
@@ -27,7 +27,7 @@ def render_subtitle_preview_frame(
 
     filtergraph = build_reframe_filtergraph(
         mode=mode,
-        ass_file=str(ass_path),
+        ass_file=str(ass_path) if ass_path else None,
         fonts_dir=f_dir_str,
     )
 

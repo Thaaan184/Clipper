@@ -28,3 +28,15 @@ def test_reframe_stacked_filtergraph():
     assert "vstack=inputs=2" in fg
     assert "scale=1080:1200" in fg
     assert "scale=1080:720" in fg
+
+
+def test_reframe_without_subtitles():
+    fg_blur = build_reframe_filtergraph(mode="blur", ass_file=None)
+    assert "gblur=sigma=30" in fg_blur
+    assert "ass=" not in fg_blur
+    assert "format=yuv420p[v]" in fg_blur
+
+    fg_center = build_reframe_filtergraph(mode="center", ass_file=None)
+    assert "crop=1080:1920" in fg_center
+    assert "ass=" not in fg_center
+    assert "format=yuv420p[v]" in fg_center

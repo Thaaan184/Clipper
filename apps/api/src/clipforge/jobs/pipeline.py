@@ -692,12 +692,20 @@ async def stage_render_clips(
         srt_file = clip_folder / "clip.srt"
         srt_file.write_text(export_srt(chunks), encoding="utf-8")
 
+        has_subtitles = subtitle_style.lower() not in (
+            "none",
+            "off",
+            "disable",
+            "no_subtitles",
+            "tanpa_subtitle",
+        )
+
         # 3. Render clip via engine
         try:
             render_res = render_single_clip(
                 clip_dir=clip_folder,
                 raw_video=raw_video,
-                ass_path=ass_file,
+                ass_path=ass_file if has_subtitles else None,
                 mode=reframe_mode,
                 expected_duration_s=cand["duration_s"],
             )

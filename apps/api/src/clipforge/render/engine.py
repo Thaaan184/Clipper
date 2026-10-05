@@ -22,7 +22,7 @@ ASSETS_FONTS_DIR = Path(__file__).parent.parent.parent.parent / "assets" / "font
 def render_single_clip(
     clip_dir: Path,
     raw_video: Path,
-    ass_path: Path,
+    ass_path: Path | None = None,
     mode: str = "blur",
     fps: int = 30,
     expected_duration_s: float | None = None,
@@ -30,7 +30,7 @@ def render_single_clip(
     face_roi: tuple[float, float, float, float] | None = None,
 ) -> dict[str, Any]:
     """
-    Render a single 9:16 clip from raw.mp4 + subs.ass.
+    Render a single 9:16 clip from raw.mp4 + optional subs.ass.
     Guarantees:
       - OFL fonts bundled into clip_dir/fonts
       - Loudnorm pass 2 applied
@@ -46,10 +46,15 @@ def render_single_clip(
         for f in ASSETS_FONTS_DIR.glob("*.ttf"):
             shutil.copy2(f, fonts_dir / f.name)
 
-    # Copy ASS script if not already in clip_dir
+    # Copy ASS script if provided and not already in clip_dir
     local_ass = clip_dir / "subs.ass"
-    if ass_path.resolve() != local_ass.resolve():
-        shutil.copy2(ass_path, local_ass)
+    has_ass = False
+    if ass_path and ass_path.exists():
+        if ass_path.resolve() != local_ass.resolve():
+            shutil.copy2(ass_path, local_ass)
+        has_ass = True
+    elif ass_path is not None and local_ass.exists():
+        has_ass = True
 
     final_mp4 = clip_dir / "final.mp4"
     thumb_jpg = clip_dir / "thumb.jpg"
@@ -62,7 +67,7 @@ def render_single_clip(
     # 3. Build filtergraph using relative paths for cwd execution
     filtergraph = build_reframe_filtergraph(
         mode=mode,
-        ass_file="subs.ass",
+        ass_file="subs.ass" if has_ass else None,
         fonts_dir="fonts",
         game_roi=game_roi,
         face_roi=face_roi,

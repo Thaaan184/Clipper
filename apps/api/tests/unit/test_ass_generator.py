@@ -23,11 +23,25 @@ def test_load_all_presets():
         "neon_glow",
         "minimal_clean",
         "fire_orange",
+        "none",
     ]:
         preset = load_style_preset(name)
         assert preset.name == name
         assert preset.font_size > 0
         assert "&H" in preset.primary_color
+
+
+def test_generate_ass_script_none_preset():
+    words = [
+        SubtitleWord(idx=0, start_s=1.0, end_s=1.5, text="squad"),
+    ]
+    chunk = SubtitleChunk(words=words, start_s=1.0, end_s=1.5)
+    preset = load_style_preset("none")
+
+    ass_text = generate_ass_script([chunk], style=preset)
+    assert "PlayResX: 1080" in ass_text
+    dialogue_lines = [ln for ln in ass_text.splitlines() if ln.startswith("Dialogue:")]
+    assert len(dialogue_lines) == 0
 
 
 def test_generate_ass_script_active_word_highlighting():

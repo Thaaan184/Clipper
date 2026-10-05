@@ -201,6 +201,7 @@ export const JobForm: React.FC<JobFormProps> = ({ onSubmit, loading }) => {
               <option value="mrbeast_box">MrBeast Box</option>
               <option value="neon_glow">Neon Glow</option>
               <option value="minimal_clean">Minimal Clean</option>
+              <option value="none">Tanpa Subtitle (No Subtitle)</option>
             </select>
           </div>
         </div>
