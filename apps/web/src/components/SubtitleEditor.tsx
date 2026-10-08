@@ -8,7 +8,10 @@ import {
 } from "../api";
 import {
   AlertTriangle,
+  ArrowUpDown,
   Check,
+  ChevronDown,
+  ChevronUp,
   Eye,
   FileEdit,
   GripVertical,
@@ -97,6 +100,10 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  // List drag-and-drop reorder state
+  const [draggedRowIndex, setDraggedRowIndex] = useState<number | null>(null);
+  const [dragOverRowIndex, setDragOverRowIndex] = useState<number | null>(null);
+
   // In-App Re-render Modal state
   const [rerenderModal, setRerenderModal] = useState<{
     isOpen: boolean;
@@ -111,7 +118,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
     message: "",
   });
 
-  // Dragging state inside WYSIWYG preview frame
+  // Dragging state inside WYSIWYG preview frame (vertical canvas positioning)
   const previewFrameRef = useRef<HTMLDivElement | null>(null);
   const [draggingWordIdx, setDraggingWordIdx] = useState<number | null>(null);
   const [dragStartY, setDragStartY] = useState<number>(0);
@@ -131,6 +138,73 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  // List Reorder: Drag and Drop Handlers
+  const handleListDragStart = (idx: number, e: React.DragEvent) => {
+    setDraggedRowIndex(idx);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", idx.toString());
+  };
+
+  const handleListDragOver = (idx: number, e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (dragOverRowIndex !== idx) {
+      setDragOverRowIndex(idx);
+    }
+  };
+
+  const handleListDrop = (targetIdx: number, e: React.DragEvent) => {
+    e.preventDefault();
+    if (draggedRowIndex === null || draggedRowIndex === targetIdx) {
+      setDraggedRowIndex(null);
+      setDragOverRowIndex(null);
+      return;
+    }
+
+    setWords((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(draggedRowIndex, 1);
+      next.splice(targetIdx, 0, moved);
+      return next.map((item, i) => ({ ...item, idx: i }));
+    });
+
+    setSelectedWordIdx(targetIdx);
+    setDraggedRowIndex(null);
+    setDragOverRowIndex(null);
+    showToast(`Urutan subtitle #${draggedRowIndex + 1} dipindah ke #${targetIdx + 1}`);
+  };
+
+  const handleListDragEnd = () => {
+    setDraggedRowIndex(null);
+    setDragOverRowIndex(null);
+  };
+
+  // Move up/down single step
+  const handleMoveRow = (idx: number, direction: "up" | "down", e: React.MouseEvent) => {
+    e.stopPropagation();
+    const targetIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= words.length) return;
+
+    setWords((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(idx, 1);
+      next.splice(targetIdx, 0, moved);
+      return next.map((item, i) => ({ ...item, idx: i }));
+    });
+    setSelectedWordIdx(targetIdx);
+  };
+
+  // Sort by start_s ascending
+  const handleSortByTime = () => {
+    setWords((prev) => {
+      const sorted = [...prev].sort(
+        (a, b) => a.start_s - b.start_s || a.end_s - b.end_s
+      );
+      return sorted.map((w, i) => ({ ...w, idx: i }));
+    });
+    showToast("Daftar subtitle diurutkan berdasarkan timestamp.");
   };
 
   const handleWordTextChange = (idx: number, newText: string) => {
@@ -170,7 +244,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
     setWords((prev) =>
       prev.map((w, i) => (i === idx ? { ...w, pos_y: null } : w))
     );
-    showToast("Posisi subtitle dikembalikan ke Auto (Stack)");
+    showToast("Posisi visual dikembalikan ke Auto (Stack)");
   };
 
   const handleAddWord = () => {
@@ -250,7 +324,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
       isOpen: true,
       status: "confirm",
       progress: 0,
-      message: "Re-render video final 1080x1920 dengan revisi subtitle & tata letak ini?",
+      message: "Re-render video final 1080x1920 dengan revisi subtitle & urutan ini?",
     });
   };
 
@@ -259,7 +333,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
       isOpen: true,
       status: "rendering",
       progress: 15,
-      message: "Menyimpan revisi subtitle & koordinat posisi...",
+      message: "Menyimpan revisi subtitle & urutan...",
     });
 
     try {
@@ -307,7 +381,6 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
 
       if (onClipUpdated) onClipUpdated();
 
-      // Automatically close modal after 1.5 seconds
       setTimeout(() => {
         setRerenderModal((prev) => ({ ...prev, isOpen: false }));
       }, 1500);
@@ -335,8 +408,8 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
       ? [words[selectedWordIdx]]
       : [];
 
-  // Drag handlers in WYSIWYG preview frame
-  const handleDragStart = (
+  // Drag handlers in WYSIWYG preview frame (vertical canvas positioning)
+  const handleCanvasDragStart = (
     wIdx: number,
     currentAssPosY: number,
     clientY: number
@@ -584,20 +657,34 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
         </div>
       </div>
 
-      {/* Main Content: Word List + Visual WYSIWYG Frame Preview with Drag */}
+      {/* Main Content: Word List with Drag Reordering + Visual WYSIWYG Frame Preview */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Subtitle List */}
         <div className="flex flex-col gap-2">
           <div className="flex justify-between items-center text-xs text-muted font-mono">
-            <span>DAFTAR SUBTITLE & TIMING ({words.length} baris)</span>
-            <button
-              type="button"
-              onClick={handleAddWord}
-              className="flex items-center gap-1 text-[11px] text-action hover:underline font-bold"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>TAMBAH BARIS</span>
-            </button>
+            <span className="flex items-center gap-1.5">
+              <span>DAFTAR SUBTITLE & TIMING ({words.length} baris)</span>
+              <span className="text-[10px] text-action opacity-80">(Drag # untuk ubah urutan)</span>
+            </span>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handleSortByTime}
+                className="flex items-center gap-1 text-[10px] text-muted hover:text-copy"
+                title="Urutkan baris berdasarkan timestamp mulai secara otomatis"
+              >
+                <ArrowUpDown className="w-3 h-3" />
+                <span>URUTKAN WAKTU</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleAddWord}
+                className="flex items-center gap-1 text-[11px] text-action hover:underline font-bold"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>TAMBAH BARIS</span>
+              </button>
+            </div>
           </div>
 
           <div className="h-[480px] overflow-y-auto bg-card p-2.5 border border-line flex flex-col gap-2 font-mono">
@@ -616,24 +703,66 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
               words.map((w, idx) => {
                 const isSelected = selectedWordIdx === idx;
                 const spkColor = getSpeakerColor(w.speaker);
+                const isDragOver = dragOverRowIndex === idx;
+                const isDragged = draggedRowIndex === idx;
 
                 return (
                   <div
                     key={idx}
+                    draggable
+                    onDragStart={(e) => handleListDragStart(idx, e)}
+                    onDragOver={(e) => handleListDragOver(idx, e)}
+                    onDragEnd={handleListDragEnd}
+                    onDrop={(e) => handleListDrop(idx, e)}
                     onClick={() => {
                       setSelectedWordIdx(idx);
                       setPreviewTime(w.start_s);
                     }}
-                    className={`flex flex-col gap-2 p-2.5 bg-surface border transition-colors cursor-pointer text-xs ${
+                    className={`flex flex-col gap-2 p-2.5 bg-surface border transition-all cursor-pointer text-xs ${
                       isSelected
-                        ? "border-action shadow-md bg-surface/90"
+                        ? "border-action shadow-md bg-surface/90 ring-1 ring-action/50"
                         : "border-line hover:border-zinc-700"
+                    } ${isDragOver ? "border-t-2 border-t-action bg-action/5" : ""} ${
+                      isDragged ? "opacity-40 scale-[0.98]" : ""
                     }`}
                   >
-                    {/* Top Row: Speaker selector + Timing IN/OUT + Pos Y */}
+                    {/* Top Row: Drag Handle + #ID + Speaker selector + Timing IN/OUT + Pos Y */}
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      {/* Speaker Badge / Dropdown */}
                       <div className="flex items-center gap-1.5">
+                        {/* Drag Reorder Handle & Row Number */}
+                        <div
+                          className="flex items-center gap-0.5 cursor-grab active:cursor-grabbing text-muted hover:text-action pr-1 select-none"
+                          title="Drag baris ini ke atas atau ke bawah untuk ubah urutan (contoh: geser #3 jadi #2)"
+                        >
+                          <GripVertical className="w-3.5 h-3.5 text-action" />
+                          <span className="font-extrabold text-[11px] text-copy min-w-[20px]">
+                            #{idx + 1}
+                          </span>
+                        </div>
+
+                        {/* Quick Up/Down buttons */}
+                        <div className="flex items-center gap-0.5 mr-1">
+                          <button
+                            type="button"
+                            disabled={idx === 0}
+                            onClick={(e) => handleMoveRow(idx, "up", e)}
+                            className="p-0.5 text-muted hover:text-action disabled:opacity-20"
+                            title="Geser baris naik"
+                          >
+                            <ChevronUp className="w-3 h-3" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={idx === words.length - 1}
+                            onClick={(e) => handleMoveRow(idx, "down", e)}
+                            className="p-0.5 text-muted hover:text-action disabled:opacity-20"
+                            title="Geser baris turun"
+                          >
+                            <ChevronDown className="w-3 h-3" />
+                          </button>
+                        </div>
+
+                        {/* Speaker Badge / Dropdown */}
                         <select
                           value={w.speaker || "speaker_1"}
                           onChange={(e) => handleWordSpeakerChange(idx, e.target.value)}
@@ -733,7 +862,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
         {/* Visual WYSIWYG Frame Preview with Interactive Vertical Dragging */}
         <div className="flex flex-col gap-2">
           <div className="flex justify-between items-center text-xs text-muted font-mono">
-            <span>WYSIWYG 9:16 PREVIEW & DRAG POSISI</span>
+            <span>WYSIWYG 9:16 PREVIEW & DRAG POSISI VISUAL</span>
             <button
               onClick={handlePreviewFrame}
               disabled={isPreviewing}
@@ -774,7 +903,6 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
 
               {/* Subtitles Overlay: Multiple concurrent subtitles appear simultaneously */}
               {displayedSubtitles.map((sub, sIdx) => {
-                // Calculate ASS Y position: if custom pos_y set, use it; else slot stack
                 const defaultAssY = 1680 - sIdx * 140;
                 const activeAssY =
                   sub.pos_y !== null && sub.pos_y !== undefined
@@ -791,7 +919,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
                     onMouseDown={(e) => {
                       e.stopPropagation();
                       setSelectedWordIdx(sub.idx);
-                      handleDragStart(sub.idx, activeAssY, e.clientY);
+                      handleCanvasDragStart(sub.idx, activeAssY, e.clientY);
                     }}
                     style={{
                       top: `${topPercent}%`,
