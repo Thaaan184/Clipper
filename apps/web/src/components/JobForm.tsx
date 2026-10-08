@@ -17,6 +17,7 @@ interface JobFormProps {
       title?: string;
       reframe_mode?: string;
       subtitle_style?: string;
+      subtitle_position?: string;
       language?: string;
     }
   ) => Promise<void>;
@@ -67,6 +68,7 @@ export const JobForm: React.FC<JobFormProps> = ({
   const [clipCount, setClipCount] = useState(5);
   const [reframeMode, setReframeMode] = useState<"blur" | "center" | "stacked">("blur");
   const [subtitleStyle, setSubtitleStyle] = useState("classic_white");
+  const [subtitlePosition, setSubtitlePosition] = useState<"bottom" | "top">("bottom");
   const [error, setError] = useState<string | null>(null);
 
   // Manual clip state
@@ -109,6 +111,7 @@ export const JobForm: React.FC<JobFormProps> = ({
           title: manualTitle.trim() || undefined,
           reframe_mode: reframeMode,
           subtitle_style: subtitleStyle,
+          subtitle_position: subtitlePosition,
           language,
         });
       } else {
@@ -119,6 +122,7 @@ export const JobForm: React.FC<JobFormProps> = ({
           title: manualTitle.trim() || undefined,
           reframe_mode: reframeMode,
           subtitle_style: subtitleStyle,
+          subtitle_position: subtitlePosition,
         });
       }
     } else {
@@ -126,6 +130,7 @@ export const JobForm: React.FC<JobFormProps> = ({
         clip_count: clipCount,
         reframe_mode: reframeMode,
         subtitle_style: subtitleStyle,
+        subtitle_position: subtitlePosition,
       });
     }
   };
@@ -253,7 +258,7 @@ export const JobForm: React.FC<JobFormProps> = ({
 
         {/* Slate Options Bar */}
         {mode === "auto" ? (
-          <div className="p-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 bg-card/30 text-xs">
+          <div className="p-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-5 bg-card/30 text-xs">
             {/* Target Count */}
             <div>
               <label className="block text-muted uppercase font-bold tracking-wider mb-2">
@@ -337,11 +342,27 @@ export const JobForm: React.FC<JobFormProps> = ({
                 <option value="none">Tanpa Subtitle (No Subtitle)</option>
               </select>
             </div>
+
+            {/* Subtitle Location Preset */}
+            <div>
+              <label className="block text-muted uppercase font-bold tracking-wider mb-2">
+                Lokasi Subtitle
+              </label>
+              <select
+                value={subtitlePosition}
+                onChange={(e) => setSubtitlePosition(e.target.value as "bottom" | "top")}
+                disabled={loading || subtitleStyle === "none"}
+                className="w-full bg-bg border border-line py-1.5 px-2 text-copy focus:border-action focus:outline-none"
+              >
+                <option value="bottom">Bawah (Standar Y=1680)</option>
+                <option value="top">Atas (YT Shorts Safe Y=420)</option>
+              </select>
+            </div>
           </div>
         ) : (
           /* Manual Clip Options Bar */
           <div className="p-5 bg-card/30 text-xs flex flex-col gap-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
               {/* Start Timestamp */}
               <div>
                 <label className="block text-muted uppercase font-bold tracking-wider mb-1.5">
@@ -399,6 +420,23 @@ export const JobForm: React.FC<JobFormProps> = ({
                   <option value="minimal_clean">Minimal Clean (Putih Minimalis)</option>
                 </select>
                 <span className="text-[10px] text-muted mt-1 block">Pilih Tanpa Subtitle untuk rendering instan</span>
+              </div>
+
+              {/* Subtitle Location Preset */}
+              <div>
+                <label className="block text-muted uppercase font-bold tracking-wider mb-1.5">
+                  Lokasi Subtitle
+                </label>
+                <select
+                  value={subtitlePosition}
+                  onChange={(e) => setSubtitlePosition(e.target.value as "bottom" | "top")}
+                  disabled={loading || subtitleStyle === "none"}
+                  className="w-full bg-bg border border-line py-1.5 px-2 text-copy focus:border-action focus:outline-none"
+                >
+                  <option value="bottom">Bawah (Y=1680)</option>
+                  <option value="top">Atas (YT Shorts Safe Y=420)</option>
+                </select>
+                <span className="text-[10px] text-muted mt-1 block">Preset posisi awal di video 9:16</span>
               </div>
 
               {/* Reframe Mode */}

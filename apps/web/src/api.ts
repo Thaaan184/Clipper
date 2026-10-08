@@ -44,6 +44,7 @@ export async function createManualJob(
     title?: string;
     reframe_mode?: string;
     subtitle_style?: string;
+    subtitle_position?: string;
     language?: string;
   }
 ): Promise<Job> {
@@ -54,6 +55,7 @@ export async function createManualJob(
     title: options?.title || undefined,
     reframe_mode: options?.reframe_mode || "blur",
     subtitle_style: options?.subtitle_style || "none",
+    subtitle_position: options?.subtitle_position || "bottom",
     language: options?.language || "id",
   };
   const res = await fetch(`${API_BASE}/api/jobs/manual`, {
@@ -155,6 +157,7 @@ export async function triggerRender(
     candidate_ids?: string[];
     reframe_mode?: string;
     subtitle_style?: string;
+    subtitle_position?: string;
   }
 ): Promise<{ status: string; job_id: string; message?: string }> {
   const res = await fetch(`${API_BASE}/api/jobs/${jobId}/render`, {
@@ -188,7 +191,8 @@ export async function getClipSubtitles(clipId: string): Promise<SubtitleTrack> {
 export async function updateClipSubtitles(
   clipId: string,
   words: SubtitleWord[],
-  stylePreset: string | { preset?: string }
+  stylePreset: string | { preset?: string },
+  subtitlePosition = "bottom"
 ): Promise<{ revision: number }> {
   const presetStr =
     typeof stylePreset === "string"
@@ -201,6 +205,7 @@ export async function updateClipSubtitles(
     body: JSON.stringify({
       words,
       style_preset: presetStr,
+      subtitle_position: subtitlePosition,
     }),
   });
   if (!res.ok) {
@@ -214,7 +219,8 @@ export async function previewSubtitleFrame(
   t_s: number,
   stylePreset: string | { preset?: string },
   reframeMode = "blur",
-  words?: SubtitleWord[]
+  words?: SubtitleWord[],
+  subtitlePosition = "bottom"
 ): Promise<Blob> {
   const presetStr =
     typeof stylePreset === "string"
@@ -229,6 +235,7 @@ export async function previewSubtitleFrame(
       style_preset: presetStr,
       reframe_mode: reframeMode,
       words,
+      subtitle_position: subtitlePosition,
     }),
   });
   if (!res.ok) {
@@ -242,6 +249,7 @@ export async function rerenderClip(
   options?: {
     reframe_mode?: string;
     subtitle_style?: string;
+    subtitle_position?: string;
   }
 ): Promise<Clip> {
   const res = await fetch(`${API_BASE}/api/clips/${clipId}/rerender`, {

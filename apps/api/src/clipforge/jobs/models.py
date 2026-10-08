@@ -44,6 +44,7 @@ class JobCreateRequest(BaseModel):
     max_duration_s: float = Field(default=60.0, le=180.0, description="Max clip duration")
     reframe_mode: str = Field(default="blur", description="blur, center, stacked")
     subtitle_style: str = Field(default="classic_white", description="Subtitle visual preset")
+    subtitle_position: str = Field(default="bottom", description="Subtitle placement: 'bottom' or 'top' (YT Shorts safe zone)")
     manual: bool = Field(default=False, description="Manual clip mode flag")
     start_time: str | float | None = Field(default=None, description="Start timestamp for manual clip")
     end_time: str | float | None = Field(default=None, description="End timestamp for manual clip")
@@ -61,12 +62,17 @@ class JobCreateRequest(BaseModel):
                     "max_duration_s",
                     "reframe_mode",
                     "subtitle_style",
+                    "subtitle_position",
+                    "subtitle_location",
                     "manual",
                     "start_time",
                     "end_time",
                 ):
                     if k in p and (k not in data or data[k] is None):
-                        data[k] = p[k]
+                        if k == "subtitle_location" and "subtitle_position" not in data:
+                            data["subtitle_position"] = p[k]
+                        else:
+                            data[k] = p[k]
         return data
 
 
@@ -77,6 +83,7 @@ class ManualClipCreateRequest(BaseModel):
     title: str | None = Field(default=None, description="Optional custom title")
     reframe_mode: str = Field(default="blur", description="blur, center, stacked")
     subtitle_style: str = Field(default="none", description="Subtitle visual preset")
+    subtitle_position: str = Field(default="bottom", description="Subtitle placement: 'bottom' or 'top' (Shorts safe)")
     language: str = Field(default="id", description="Language code")
 
 

@@ -65,6 +65,7 @@ class FinishedClipResponse(BaseModel):
 class SubtitlesUpdatePayload(BaseModel):
     words: list[SubtitleWord]
     style_preset: str | dict[str, Any] = "classic_white"
+    subtitle_position: str = "bottom"
 
 
 class SubtitlesPreviewPayload(BaseModel):
@@ -72,6 +73,7 @@ class SubtitlesPreviewPayload(BaseModel):
     style_preset: str | dict[str, Any] = "classic_white"
     reframe_mode: str = "blur"
     words: list[SubtitleWord] | None = None
+    subtitle_position: str = "bottom"
 
 
 def _normalize_style_preset(style: str | dict[str, Any] | None) -> str:
@@ -558,9 +560,10 @@ async def update_clip_subtitles(
         next_rev = (rev_row[0] if rev_row else 0) + 1
 
     preset_name = _normalize_style_preset(payload.style_preset)
+    sub_pos = payload.subtitle_position or "bottom"
     track_id = str(uuid.uuid4())
     now_iso = datetime.now(UTC).isoformat()
-    style_json = json.dumps({"preset": preset_name})
+    style_json = json.dumps({"preset": preset_name, "subtitle_position": sub_pos})
 
     # Validate words
     val_words = validate_and_normalize_words(payload.words, clip_duration_s=clip_dur)
@@ -598,7 +601,7 @@ async def update_clip_subtitles(
     if clip_dir.exists():
         style_preset = load_style_preset(preset_name)
         chunks = create_kinetic_chunks(val_words)
-        ass_content = generate_ass_script(chunks, style=style_preset)
+        ass_content = generate_ass_script(chunks, style=style_preset, subtitle_position=sub_pos)
         (clip_dir / "subs.ass").write_text(ass_content, encoding="utf-8")
         (clip_dir / "clip.srt").write_text(export_srt(chunks), encoding="utf-8")
 
@@ -656,7 +659,8 @@ async def preview_subtitle_frame(
             words = []
 
         chunks = create_kinetic_chunks(words)
-        ass_content = generate_ass_script(chunks, style=style_preset)
+        sub_pos = payload.subtitle_position or "bottom"
+        ass_content = generate_ass_script(chunks, style=style_preset, subtitle_position=sub_pos)
 
         p_ass = clip_dir / "preview.ass"
         p_ass.write_text(ass_content, encoding="utf-8")
@@ -681,6 +685,7 @@ async def preview_subtitle_frame(
 class RerenderClipRequest(BaseModel):
     reframe_mode: str | None = None
     subtitle_style: str | None = None
+    subtitle_position: str | None = None
 
 
 @router.post("/{clip_id}/rerender", response_model=ClipResponse)
@@ -753,6 +758,8 @@ async def rerender_clip(
 
     r_params["reframe_mode"] = mode
     r_params["subtitle_style"] = preset_name
+    if payload and payload.subtitle_position:
+        r_params["subtitle_position"] = payload.subtitle_position
     new_r_params_json = json.dumps(r_params)
 
     await db.execute(

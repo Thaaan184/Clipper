@@ -218,3 +218,32 @@ def test_custom_vertical_drag_positioning_persists_to_ass():
     assert "\\pos(540,1150)" in ass_text
     assert "Subtitle di-drag ke atas." in ass_text
 
+
+def test_subtitle_position_top_shorts_safe_zone():
+    """
+    Test preset subtitle_position='top' sets default Y coordinate to top safe area (Y=420)
+    avoiding YouTube Shorts bottom UI collisions.
+    """
+    words = [
+        SubtitleWord(
+            idx=0,
+            start_s=5.0,
+            end_s=8.0,
+            text="Subtitle di atas main clip.",
+            speaker="speaker_1",
+            pos_y=None,
+        )
+    ]
+    val_words = validate_and_normalize_words(words, clip_duration_s=20.0)
+    chunks = create_kinetic_chunks(val_words)
+    preset = load_style_preset("classic_white")
+
+    # Bottom (default)
+    ass_bottom = generate_ass_script(chunks, style=preset, subtitle_position="bottom")
+    assert "\\pos(540,1680)" in ass_bottom
+
+    # Top safe zone
+    ass_top = generate_ass_script(chunks, style=preset, subtitle_position="top")
+    assert "\\pos(540,420)" in ass_top
+
+

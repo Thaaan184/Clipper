@@ -85,10 +85,24 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
     return "classic_white";
   };
 
+  const getInitialPosition = (track: SubtitleTrack): "bottom" | "top" => {
+    if (track.subtitle_position === "top" || track.subtitle_position === "bottom") {
+      return track.subtitle_position;
+    }
+    if (track.style && typeof track.style === "object" && (track.style as any).subtitle_position) {
+      return (track.style as any).subtitle_position === "top" ? "top" : "bottom";
+    }
+    return "bottom";
+  };
+
   const [words, setWords] = useState<SubtitleWord[]>(initialTrack.words || []);
   const [stylePreset, setStylePreset] = useState<string>(
     getInitialPreset(initialTrack.style)
   );
+  const [subtitlePosition, setSubtitlePosition] = useState<"bottom" | "top">(
+    getInitialPosition(initialTrack)
+  );
+  const [dragScope, setDragScope] = useState<"speaker" | "all" | "single">("speaker");
   const [reframeMode, setReframeMode] = useState("blur");
   const [previewTime, setPreviewTime] = useState(1.0);
   const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
@@ -123,11 +137,13 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
   const [draggingWordIdx, setDraggingWordIdx] = useState<number | null>(null);
   const [dragStartY, setDragStartY] = useState<number>(0);
   const [dragStartPosY, setDragStartPosY] = useState<number>(1680);
+  const dragInitialPositionsRef = useRef<Map<number, number>>(new Map());
 
   useEffect(() => {
     if (initialTrack) {
       setWords(initialTrack.words || []);
       setStylePreset(getInitialPreset(initialTrack.style));
+      setSubtitlePosition(getInitialPosition(initialTrack));
       if ((initialTrack.words || []).length > 0) {
         setSelectedWordIdx(0);
         setPreviewTime(initialTrack.words[0].start_s);
@@ -275,11 +291,44 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
     }
   };
 
+  const handleApplyPresetLocation = (targetPos: "bottom" | "top") => {
+    setSubtitlePosition(targetPos);
+    const targetBaseY = targetPos === "top" ? 420 : 1680;
+    setWords((prev) =>
+      prev.map((w) => ({
+        ...w,
+        pos_y: targetBaseY,
+      }))
+    );
+    showToast(
+      targetPos === "top"
+        ? "Semua subtitle dipindahkan ke preset ATAS (Y=420 - Bebas Caption YouTube Shorts)"
+        : "Semua subtitle dipindahkan ke preset BAWAH (Y=1680 - Standar)"
+    );
+  };
+
+  const handleApplySpeakerPresetLocation = (
+    speaker: string,
+    targetPos: "bottom" | "top"
+  ) => {
+    const targetBaseY = targetPos === "top" ? 420 : 1680;
+    setWords((prev) =>
+      prev.map((w) =>
+        (w.speaker || "speaker_1") === speaker ? { ...w, pos_y: targetBaseY } : w
+      )
+    );
+    showToast(
+      `Semua subtitle ${getSpeakerLabel(speaker)} dipindahkan ke ${
+        targetPos === "top" ? "ATAS (Y=420)" : "BAWAH (Y=1680)"
+      }`
+    );
+  };
+
   const handleSaveSubtitles = async () => {
     setIsSaving(true);
     setSaveSuccess(false);
     try {
-      await updateClipSubtitles(clipId, words, stylePreset);
+      await updateClipSubtitles(clipId, words, stylePreset, subtitlePosition);
       try {
         await saveFinishedClip(clipId);
       } catch {
@@ -304,7 +353,8 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
         previewTime,
         stylePreset,
         reframeMode,
-        words
+        words,
+        subtitlePosition
       );
       if (previewBlobUrl) {
         URL.revokeObjectURL(previewBlobUrl);
@@ -337,7 +387,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
     });
 
     try {
-      await updateClipSubtitles(clipId, words, stylePreset);
+      await updateClipSubtitles(clipId, words, stylePreset, subtitlePosition);
 
       setRerenderModal((prev) => ({
         ...prev,
@@ -364,6 +414,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
       await rerenderClip(clipId, {
         reframe_mode: reframeMode,
         subtitle_style: stylePreset,
+        subtitle_position: subtitlePosition,
       });
 
       clearInterval(progTimer);
@@ -417,6 +468,15 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
     setDraggingWordIdx(wIdx);
     setDragStartY(clientY);
     setDragStartPosY(currentAssPosY);
+
+    const defaultBaseY = subtitlePosition === "top" ? 420 : 1680;
+    const posMap = new Map<number, number>();
+    words.forEach((w, idx) => {
+      const y =
+        w.pos_y !== null && w.pos_y !== undefined ? w.pos_y : defaultBaseY;
+      posMap.set(idx, y);
+    });
+    dragInitialPositionsRef.current = posMap;
   };
 
   useEffect(() => {
@@ -426,17 +486,47 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
       const frameHeightPx = rect.height || 480;
       const deltaClientY = e.clientY - dragStartY;
       const deltaAssY = deltaClientY * (1920 / frameHeightPx);
-      const newPosY = Math.round(
-        Math.min(1820, Math.max(180, dragStartPosY + deltaAssY))
-      );
+
+      const targetWord = words[draggingWordIdx];
+      const targetSpeaker = targetWord?.speaker || "speaker_1";
+      const initMap = dragInitialPositionsRef.current;
+      const defaultBaseY = subtitlePosition === "top" ? 420 : 1680;
 
       setWords((prev) =>
-        prev.map((w, i) => (i === draggingWordIdx ? { ...w, pos_y: newPosY } : w))
+        prev.map((w, idx) => {
+          let shouldMove = false;
+          if (dragScope === "single") {
+            shouldMove = idx === draggingWordIdx;
+          } else if (dragScope === "all") {
+            shouldMove = true;
+          } else if (dragScope === "speaker") {
+            shouldMove = (w.speaker || "speaker_1") === targetSpeaker;
+          }
+
+          if (!shouldMove) return w;
+
+          const baseInitialY = initMap.get(idx) ?? defaultBaseY;
+          const newPosY = Math.round(
+            Math.min(1820, Math.max(180, baseInitialY + deltaAssY))
+          );
+          return { ...w, pos_y: newPosY };
+        })
       );
     };
 
     const handleMouseUp = () => {
       if (draggingWordIdx !== null) {
+        const targetWord = words[draggingWordIdx];
+        const spk = targetWord?.speaker || "speaker_1";
+        if (dragScope === "speaker") {
+          showToast(
+            `Posisi visual seluruh baris ${getSpeakerLabel(spk)} berhasil digeser bersamaan`
+          );
+        } else if (dragScope === "all") {
+          showToast("Posisi visual seluruh subtitle berhasil digeser bersamaan");
+        } else {
+          showToast(`Posisi visual subtitle #${draggingWordIdx + 1} berhasil digeser`);
+        }
         setDraggingWordIdx(null);
       }
     };
@@ -450,7 +540,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [draggingWordIdx, dragStartY, dragStartPosY]);
+  }, [draggingWordIdx, dragStartY, dragStartPosY, dragScope, subtitlePosition, words]);
 
   return (
     <div className="marked-frame border border-line bg-surface p-6 shadow-2xl flex flex-col gap-6 relative">
@@ -606,7 +696,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
       </div>
 
       {/* Settings Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs font-mono">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 text-xs font-mono">
         <div>
           <label className="block uppercase tracking-wider text-muted mb-1.5 flex items-center gap-1.5 font-bold">
             <Palette className="w-3.5 h-3.5 text-action" />
@@ -624,6 +714,20 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
             <option value="neon_glow">Neon Glow (Cyan/Magenta)</option>
             <option value="minimal_clean">Minimal Clean (Putih Minimalis)</option>
             <option value="none">Tanpa Subtitle (No Subtitle)</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="block uppercase tracking-wider text-muted mb-1.5 font-bold">
+            Preset Lokasi Awal
+          </label>
+          <select
+            value={subtitlePosition}
+            onChange={(e) => handleApplyPresetLocation(e.target.value as "bottom" | "top")}
+            className="w-full px-3 py-2 bg-card border border-line text-copy text-xs focus:outline-none focus:border-action"
+          >
+            <option value="bottom">Bawah (Y=1680 - Standar)</option>
+            <option value="top">Atas (Y=420 - Safe YT Shorts)</option>
           </select>
         </div>
 
@@ -905,6 +1009,63 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
               )}
               <span>RENDER SNAPSHOT ({previewTime.toFixed(1)}s)</span>
             </button>
+          </div>
+
+          {/* Drag Scope & Quick Preset Bar */}
+          <div className="bg-card border border-line p-2 text-xs font-mono flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5">
+              <span className="text-muted font-bold text-[10px] uppercase">Target Drag:</span>
+              <select
+                value={dragScope}
+                onChange={(e) => setDragScope(e.target.value as "speaker" | "all" | "single")}
+                className="bg-bg border border-line px-2 py-0.5 text-copy text-[11px] font-semibold focus:border-action focus:outline-none"
+              >
+                <option value="speaker">Speaker Terpilih (Batch semua kata speaker ini)</option>
+                <option value="all">Semua Subtitle (Batch geser seluruh klip)</option>
+                <option value="single">Hanya Teks Ini (Spesifik 1 baris)</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => handleApplyPresetLocation("top")}
+                className={`px-2 py-0.5 text-[10px] font-bold border transition-colors ${
+                  subtitlePosition === "top"
+                    ? "bg-action text-bg border-action"
+                    : "bg-surface border-line text-muted hover:text-copy"
+                }`}
+                title="Pindahkan seluruh subtitle ke ATAS (Y=420) agar bebas caption YouTube Shorts"
+              >
+                ↑ ATAS (SHORTS)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleApplyPresetLocation("bottom")}
+                className={`px-2 py-0.5 text-[10px] font-bold border transition-colors ${
+                  subtitlePosition === "bottom"
+                    ? "bg-action text-bg border-action"
+                    : "bg-surface border-line text-muted hover:text-copy"
+                }`}
+                title="Pindahkan seluruh subtitle ke BAWAH (Y=1680 - Standar)"
+              >
+                ↓ BAWAH (STANDAR)
+              </button>
+              {selectedWordIdx !== null && words[selectedWordIdx] && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleApplySpeakerPresetLocation(
+                      words[selectedWordIdx]?.speaker || "speaker_1",
+                      subtitlePosition === "top" ? "bottom" : "top"
+                    )
+                  }
+                  className="px-2 py-0.5 text-[10px] font-bold border border-action/40 bg-action/10 text-action hover:bg-action/20"
+                  title="Pindahkan hanya speaker yang aktif saat ini"
+                >
+                  ⚡ SPK #{getSpeakerLabel(words[selectedWordIdx]?.speaker).replace("Speaker ", "")} {subtitlePosition === "top" ? "↓ BAWAH" : "↑ ATAS"}
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="h-[480px] bg-card border border-line flex items-center justify-center p-3 relative overflow-hidden select-none">

@@ -144,6 +144,7 @@ async def _execute_manual_clip_pipeline(
     end_s: float,
     reframe_mode: str = "blur",
     subtitle_style: str = "none",
+    subtitle_position: str = "bottom",
 ) -> None:
     """
     Direct fast clip extraction pipeline for manual timestamps:
@@ -269,7 +270,9 @@ async def _execute_manual_clip_pipeline(
                 val_words = validate_and_normalize_words(raw_words, clip_duration_s=duration)
                 chunks = create_kinetic_chunks(val_words)
                 style_preset = load_style_preset(subtitle_style)
-                ass_content = generate_ass_script(chunks, style=style_preset)
+                ass_content = generate_ass_script(
+                    chunks, style=style_preset, subtitle_position=subtitle_position
+                )
 
                 ass_file = clip_dir / "subs.ass"
                 ass_file.write_text(ass_content, encoding="utf-8")
@@ -281,7 +284,16 @@ async def _execute_manual_clip_pipeline(
                     INSERT INTO subtitle_tracks (id, clip_id, revision, source, language, style_json, created_at)
                     VALUES (?, ?, 1, 'manual_asr', ?, ?, ?)
                     """,
-                    (track_id, clip_id, language, json.dumps({"preset": subtitle_style}), now_iso),
+                    (
+                        track_id,
+                        clip_id,
+                        language,
+                        json.dumps({
+                            "preset": subtitle_style,
+                            "subtitle_position": subtitle_position,
+                        }),
+                        now_iso,
+                    ),
                 )
                 for w in val_words:
                     await db.execute(
@@ -314,7 +326,11 @@ async def _execute_manual_clip_pipeline(
                 raise RuntimeError(f"Render failed: {render_res.get('qa', {}).get('errors')}")
 
             # 6. Insert Clip
-            r_params_json = json.dumps({"reframe_mode": reframe_mode, "subtitle_style": subtitle_style})
+            r_params_json = json.dumps({
+                "reframe_mode": reframe_mode,
+                "subtitle_style": subtitle_style,
+                "subtitle_position": subtitle_position,
+            })
             qa_json_str = json.dumps(render_res["qa"])
             await db.execute(
                 """
@@ -413,6 +429,7 @@ async def create_manual_job(
             end_s=end_s,
             reframe_mode=req.reframe_mode,
             subtitle_style=req.subtitle_style,
+            subtitle_position=req.subtitle_position,
         )
     )
     engine._active_tasks[job_id] = task
@@ -473,6 +490,7 @@ async def create_job(
                 end_s=end_s,
                 reframe_mode=req.reframe_mode,
                 subtitle_style=req.subtitle_style,
+                subtitle_position=req.subtitle_position,
             )
         )
     else:
@@ -707,6 +725,7 @@ class TriggerRenderRequest(BaseModel):
     candidate_ids: list[str] | None = None
     reframe_mode: str | None = None
     subtitle_style: str | None = None
+    subtitle_position: str | None = None
 
 
 @router.post("/{job_id}/render", status_code=status.HTTP_202_ACCEPTED)
@@ -747,6 +766,9 @@ async def trigger_job_render(
     req_style = (payload.subtitle_style if payload else None) or params.get(
         "subtitle_style", "classic_white"
     )
+    req_position = (payload.subtitle_position if payload else None) or params.get(
+        "subtitle_position", "bottom"
+    )
 
     stage_input: dict[str, Any] = {
         "job_id": job_id,
@@ -756,6 +778,7 @@ async def trigger_job_render(
         "clip_count": params.get("clip_count", 5),
         "reframe_mode": req_reframe,
         "subtitle_style": req_style,
+        "subtitle_position": req_position,
         "candidate_ids": req_cand_ids,
     }
 

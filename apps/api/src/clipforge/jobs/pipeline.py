@@ -553,6 +553,7 @@ async def stage_render_clips(
     target_count = int(stage_input.get("clip_count", 5))
     reframe_mode = stage_input.get("reframe_mode", "blur")
     subtitle_style = stage_input.get("subtitle_style", "classic_white")
+    subtitle_position = stage_input.get("subtitle_position", stage_input.get("subtitle_location", "bottom"))
 
     # Fetch kept, specific, or top candidates from DB
     cand_ids = stage_input.get("candidate_ids")
@@ -710,7 +711,7 @@ async def stage_render_clips(
 
         val_words = validate_and_normalize_words(words_for_clip, clip_duration_s=cand["duration_s"])
         chunks = create_kinetic_chunks(val_words)
-        ass_content = generate_ass_script(chunks, style=style_preset)
+        ass_content = generate_ass_script(chunks, style=style_preset, subtitle_position=subtitle_position)
 
         ass_file = clip_folder / "subs.ass"
         ass_file.write_text(ass_content, encoding="utf-8")
@@ -755,7 +756,11 @@ async def stage_render_clips(
                 rendered_files.append(render_res["final_path"])
 
         # 4. Insert clip into DB
-        r_params_json = json.dumps({"reframe_mode": reframe_mode, "subtitle_style": subtitle_style})
+        r_params_json = json.dumps({
+            "reframe_mode": reframe_mode,
+            "subtitle_style": subtitle_style,
+            "subtitle_position": subtitle_position,
+        })
         qa_json_str = json.dumps(render_res["qa"])
 
         await db.execute(

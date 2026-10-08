@@ -111,6 +111,7 @@ export default function App(): JSX.Element {
 
   // Render configuration for candidate processing
   const [renderSubtitleStyle, setRenderSubtitleStyle] = useState<string>("classic_white");
+  const [renderSubtitlePosition, setRenderSubtitlePosition] = useState<string>("bottom");
   const [renderReframeMode, setRenderReframeMode] = useState<string>("blur");
 
   // Live 24fps timecode display
@@ -316,6 +317,9 @@ export default function App(): JSX.Element {
       if (params.subtitle_style) {
         setRenderSubtitleStyle(params.subtitle_style);
       }
+      if (params.subtitle_position) {
+        setRenderSubtitlePosition(params.subtitle_position);
+      }
       if (params.reframe_mode) {
         setRenderReframeMode(params.reframe_mode);
       }
@@ -345,6 +349,7 @@ export default function App(): JSX.Element {
       title?: string;
       reframe_mode?: string;
       subtitle_style?: string;
+      subtitle_position?: string;
       language?: string;
     }
   ) => {
@@ -352,6 +357,9 @@ export default function App(): JSX.Element {
     try {
       if (options.subtitle_style) {
         setRenderSubtitleStyle(options.subtitle_style);
+      }
+      if (options.subtitle_position) {
+        setRenderSubtitlePosition(options.subtitle_position);
       }
       if (options.reframe_mode) {
         setRenderReframeMode(options.reframe_mode);
@@ -382,6 +390,7 @@ export default function App(): JSX.Element {
       try {
         const pj = JSON.parse((job as any).params_json);
         if (pj.subtitle_style) setRenderSubtitleStyle(pj.subtitle_style);
+        if (pj.subtitle_position) setRenderSubtitlePosition(pj.subtitle_position);
         if (pj.reframe_mode) setRenderReframeMode(pj.reframe_mode);
       } catch {}
     }
@@ -504,6 +513,7 @@ export default function App(): JSX.Element {
       await triggerRender(currentJob.id, {
         candidate_ids: candIds,
         subtitle_style: renderSubtitleStyle,
+        subtitle_position: renderSubtitlePosition,
         reframe_mode: renderReframeMode,
       });
       setCurrentJob({
@@ -908,6 +918,20 @@ export default function App(): JSX.Element {
                             <option value="blur">Blur Pillarbox</option>
                             <option value="center">Center Crop</option>
                             <option value="stacked">Stacked Cam/Game</option>
+                          </select>
+                        </div>
+
+                        {/* Subtitle Location Preset */}
+                        <div className="flex items-center gap-2 bg-card border border-line px-3 py-2 text-xs">
+                          <span className="text-muted font-bold uppercase tracking-wider text-[11px]">Lokasi:</span>
+                          <select
+                            value={renderSubtitlePosition}
+                            onChange={(e) => setRenderSubtitlePosition(e.target.value)}
+                            disabled={isRendering || currentJob.status === "rendering" || renderSubtitleStyle === "none"}
+                            className="bg-transparent text-copy text-xs font-semibold focus:outline-none cursor-pointer"
+                          >
+                            <option value="bottom">Bawah (Standar Y=1680)</option>
+                            <option value="top">Atas (YT Shorts Safe Y=420)</option>
                           </select>
                         </div>
 

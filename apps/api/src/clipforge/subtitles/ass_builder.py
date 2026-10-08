@@ -80,12 +80,15 @@ def assign_chunk_vertical_positions(
     chunks: list[SubtitleChunk],
     base_y: int = 1680,
     step_y: int = 140,
+    direction: str = "up",
 ) -> dict[int, int]:
     """
     Assign vertical Y positions to chunks.
     If chunk has explicit pos_y (user dragged), use it.
     If overlapping chunks appear at the same time, stack them vertically (atas-bawah)
     so they never collide.
+    direction: 'up' (base_y - slot*step_y) for bottom placement.
+               'down' (base_y + slot*step_y) for top placement (Shorts Safe Zone).
     """
     positions: dict[int, int] = {}
     active_slots: list[tuple[float, int]] = []
@@ -105,8 +108,10 @@ def assign_chunk_vertical_positions(
             slot += 1
 
         active_slots.append((c.end_s, slot))
-        # Slot 0 is bottom (base_y), Slot 1 is stacked directly above (base_y - step_y)
-        positions[i] = max(180, base_y - slot * step_y)
+        if direction == "down":
+            positions[i] = min(1740, base_y + slot * step_y)
+        else:
+            positions[i] = max(180, base_y - slot * step_y)
 
     return positions
 
@@ -117,10 +122,12 @@ def generate_ass_script(
     video_width: int = 1080,
     video_height: int = 1920,
     enable_pop_in: bool = True,
+    subtitle_position: str = "bottom",
 ) -> str:
     """
     Generate complete ASS script string with one Dialogue event per active word state.
-    Supports overlapping subtitles with multi-speaker distinction and custom vertical drag positioning.
+    Supports overlapping subtitles with multi-speaker distinction, custom vertical drag positioning,
+    and subtitle location presets ('bottom' or 'top' for YT Shorts safe zone).
     """
     lines: list[str] = [
         "[Script Info]",
@@ -149,11 +156,19 @@ def generate_ass_script(
         return "\n".join(lines) + "\n"
 
     center_x = video_width // 2
-    base_y = max(200, video_height - style.margin_v)
+    is_top = str(subtitle_position).lower() in ("top", "atas", "top_safe", "safe_top")
+    if is_top:
+        base_y = 420
+        direction = "down"
+    else:
+        base_y = max(200, video_height - style.margin_v)
+        direction = "up"
     step_y = max(90, int(style.font_size * 2.2 + 20))
 
     speaker_colors = get_speaker_color_mapping(chunks, style.primary_color)
-    chunk_positions = assign_chunk_vertical_positions(chunks, base_y=base_y, step_y=step_y)
+    chunk_positions = assign_chunk_vertical_positions(
+        chunks, base_y=base_y, step_y=step_y, direction=direction
+    )
 
     for chunk_idx, chunk in enumerate(chunks):
         words = chunk.words

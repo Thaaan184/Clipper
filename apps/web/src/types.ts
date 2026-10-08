@@ -2,6 +2,7 @@ export interface JobParams {
   clip_count?: number;
   reframe_mode?: "blur" | "center" | "stacked";
   subtitle_style?: string;
+  subtitle_position?: "bottom" | "top";
   min_duration_s?: number;
   max_duration_s?: number;
   manual?: boolean;
@@ -124,8 +125,9 @@ export interface SubtitleTrack {
   clip_id: string;
   revision: number;
   words: SubtitleWord[];
-  style: string | { preset?: string };
+  style: string | { preset?: string; subtitle_position?: string };
   language?: string;
+  subtitle_position?: string;
 }
 
 export interface FinishedClip {
