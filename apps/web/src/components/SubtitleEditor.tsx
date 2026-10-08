@@ -664,7 +664,6 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
           <div className="flex justify-between items-center text-xs text-muted font-mono">
             <span className="flex items-center gap-1.5">
               <span>DAFTAR SUBTITLE & TIMING ({words.length} baris)</span>
-              <span className="text-[10px] text-action opacity-80">(Drag # untuk ubah urutan)</span>
             </span>
             <div className="flex items-center gap-3">
               <button
@@ -685,6 +684,14 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
                 <span>TAMBAH BARIS</span>
               </button>
             </div>
+          </div>
+
+          {/* Note Banner */}
+          <div className="bg-card/90 border border-line px-3 py-1.5 text-[11px] font-mono text-muted flex items-start sm:items-center gap-2">
+            <span className="text-action font-extrabold uppercase shrink-0">CATATAN:</span>
+            <span className="leading-tight">
+              Hit box geser urutan khusus di icon <strong className="text-copy">Grip (⋮⋮ #{'N'})</strong> paling kiri. Kolom teks dan timing bebas diketik, diklik, dan diblok tanpa bisa tergeser.
+            </span>
           </div>
 
           <div className="h-[480px] overflow-y-auto bg-card p-2.5 border border-line flex flex-col gap-2 font-mono">
@@ -709,8 +716,6 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
                 return (
                   <div
                     key={idx}
-                    draggable
-                    onDragStart={(e) => handleListDragStart(idx, e)}
                     onDragOver={(e) => handleListDragOver(idx, e)}
                     onDragEnd={handleListDragEnd}
                     onDrop={(e) => handleListDrop(idx, e)}
@@ -718,21 +723,27 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
                       setSelectedWordIdx(idx);
                       setPreviewTime(w.start_s);
                     }}
-                    className={`flex flex-col gap-2 p-2.5 bg-surface border transition-all cursor-pointer text-xs ${
+                    className={`flex flex-col gap-2 p-2.5 bg-surface border transition-all text-xs ${
                       isSelected
                         ? "border-action shadow-md bg-surface/90 ring-1 ring-action/50"
                         : "border-line hover:border-zinc-700"
                     } ${isDragOver ? "border-t-2 border-t-action bg-action/5" : ""} ${
-                      isDragged ? "opacity-40 scale-[0.98]" : ""
+                      isDragged ? "opacity-30 scale-[0.99]" : ""
                     }`}
                   >
                     {/* Top Row: Drag Handle + #ID + Speaker selector + Timing IN/OUT + Pos Y */}
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-1.5">
-                        {/* Drag Reorder Handle & Row Number */}
+                        {/* Dedicated Drag Hitbox (Grip Handle & Row Number ONLY) */}
                         <div
-                          className="flex items-center gap-0.5 cursor-grab active:cursor-grabbing text-muted hover:text-action pr-1 select-none"
-                          title="Drag baris ini ke atas atau ke bawah untuk ubah urutan (contoh: geser #3 jadi #2)"
+                          draggable={true}
+                          onDragStart={(e) => {
+                            e.stopPropagation();
+                            handleListDragStart(idx, e);
+                          }}
+                          onDragEnd={handleListDragEnd}
+                          className="flex items-center gap-1 cursor-grab active:cursor-grabbing text-action bg-card border border-action/30 hover:border-action px-1.5 py-0.5 select-none transition-colors"
+                          title="Drag dari kotak ini untuk memindahkan urutan baris (misal geser #3 jadi #2)"
                         >
                           <GripVertical className="w-3.5 h-3.5 text-action" />
                           <span className="font-extrabold text-[11px] text-copy min-w-[20px]">
@@ -767,6 +778,7 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
                           value={w.speaker || "speaker_1"}
                           onChange={(e) => handleWordSpeakerChange(idx, e.target.value)}
                           onClick={(e) => e.stopPropagation()}
+                          onMouseDown={(e) => e.stopPropagation()}
                           style={{ borderColor: spkColor, color: spkColor }}
                           className="px-2 py-0.5 bg-card border font-bold text-[10px] focus:outline-none"
                         >
@@ -789,9 +801,15 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
                           type="text"
                           defaultValue={formatSec(w.start_s)}
                           key={`st-${idx}-${w.start_s}`}
+                          draggable={false}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onDragStart={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                          }}
                           onClick={(e) => e.stopPropagation()}
                           onBlur={(e) => handleWordStartChange(idx, e.target.value)}
-                          className="w-13 px-1.5 py-0.5 bg-card border border-line text-copy text-[11px] text-center focus:border-action focus:outline-none"
+                          className="w-13 px-1.5 py-0.5 bg-card border border-line text-copy text-[11px] text-center focus:border-action focus:outline-none cursor-text select-text"
                           title="Waktu mulai (detik atau MM:SS)"
                         />
                         <span className="text-muted text-[10px]">→</span>
@@ -800,9 +818,15 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
                           type="text"
                           defaultValue={formatSec(w.end_s)}
                           key={`en-${idx}-${w.end_s}`}
+                          draggable={false}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onDragStart={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                          }}
                           onClick={(e) => e.stopPropagation()}
                           onBlur={(e) => handleWordEndChange(idx, e.target.value)}
-                          className="w-13 px-1.5 py-0.5 bg-card border border-line text-copy text-[11px] text-center focus:border-action focus:outline-none"
+                          className="w-13 px-1.5 py-0.5 bg-card border border-line text-copy text-[11px] text-center focus:border-action focus:outline-none cursor-text select-text"
                           title="Waktu selesai (detik atau MM:SS)"
                         />
                         <span className="text-[10px] text-action font-mono bg-action/10 px-1 py-0.5 border border-action/20">
@@ -843,13 +867,19 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
                       </div>
                     </div>
 
-                    {/* Bottom Row: Text input */}
+                    {/* Bottom Row: Text input (Aman diblok & diedit tanpa tergeser) */}
                     <input
                       type="text"
                       value={w.text}
+                      draggable={false}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onDragStart={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
                       onClick={(e) => e.stopPropagation()}
                       onChange={(e) => handleWordTextChange(idx, e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-card border border-line text-copy text-xs font-semibold focus:outline-none focus:border-action"
+                      className="w-full px-2.5 py-1.5 bg-card border border-line text-copy text-xs font-semibold focus:outline-none focus:border-action cursor-text select-text"
                       placeholder="Teks subtitle..."
                     />
                   </div>
