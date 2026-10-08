@@ -17,18 +17,52 @@ export async function createJob(
   language = "id",
   params?: JobParams
 ): Promise<Job> {
+  const payload: any = {
+    source_url: sourceUrl,
+    genre,
+    language,
+    ...(params || {}),
+    params,
+  };
   const res = await fetch(`${API_BASE}/api/jobs`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      source_url: sourceUrl,
-      genre,
-      language,
-      params,
-    }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Failed to create job" }));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function createManualJob(
+  sourceUrl: string,
+  startTime: string | number,
+  endTime: string | number,
+  options?: {
+    title?: string;
+    reframe_mode?: string;
+    subtitle_style?: string;
+    language?: string;
+  }
+): Promise<Job> {
+  const payload = {
+    source_url: sourceUrl,
+    start_time: startTime,
+    end_time: endTime,
+    title: options?.title || undefined,
+    reframe_mode: options?.reframe_mode || "blur",
+    subtitle_style: options?.subtitle_style || "none",
+    language: options?.language || "id",
+  };
+  const res = await fetch(`${API_BASE}/api/jobs/manual`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Failed to create manual clip job" }));
     throw new Error(err.detail || `HTTP ${res.status}`);
   }
   return res.json();
@@ -203,9 +237,17 @@ export async function previewSubtitleFrame(
   return res.blob();
 }
 
-export async function rerenderClip(clipId: string): Promise<Clip> {
+export async function rerenderClip(
+  clipId: string,
+  options?: {
+    reframe_mode?: string;
+    subtitle_style?: string;
+  }
+): Promise<Clip> {
   const res = await fetch(`${API_BASE}/api/clips/${clipId}/rerender`, {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(options || {}),
   });
   if (!res.ok) {
     throw new Error(`Failed to rerender clip ${clipId}`);

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   cancelJob,
   createJob,
+  createManualJob,
   deleteFinishedClip,
   deleteJob,
   getCandidates,
@@ -312,6 +313,12 @@ export default function App(): JSX.Element {
   ) => {
     setLoading(true);
     try {
+      if (params.subtitle_style) {
+        setRenderSubtitleStyle(params.subtitle_style);
+      }
+      if (params.reframe_mode) {
+        setRenderReframeMode(params.reframe_mode);
+      }
       const job = await createJob(url, genre, language, params);
       setCurrentJob(job);
       setTimeline(null);
@@ -330,10 +337,54 @@ export default function App(): JSX.Element {
     }
   };
 
+  const handleStartManualJob = async (
+    url: string,
+    startTime: string,
+    endTime: string,
+    options: {
+      title?: string;
+      reframe_mode?: string;
+      subtitle_style?: string;
+      language?: string;
+    }
+  ) => {
+    setLoading(true);
+    try {
+      if (options.subtitle_style) {
+        setRenderSubtitleStyle(options.subtitle_style);
+      }
+      if (options.reframe_mode) {
+        setRenderReframeMode(options.reframe_mode);
+      }
+      const job = await createManualJob(url, startTime, endTime, options);
+      setCurrentJob(job);
+      setTimeline(null);
+      setCandidates([]);
+      setSelectedCandId(null);
+      setRenderedClips([]);
+      setActiveClip(null);
+      setActiveSubtitleTrack(null);
+      navigateTo("proc", job.id);
+      showToast("Manual clip sedang diekstrak secara cepat!");
+      loadRecentJobs();
+    } catch (err: any) {
+      showToast(`Gagal membuat manual clip: ${err?.message || err}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSelectRecentJob = async (job: Job) => {
     setCurrentJob(job);
     setActiveClip(null);
     setActiveSubtitleTrack(null);
+    if ((job as any).params_json) {
+      try {
+        const pj = JSON.parse((job as any).params_json);
+        if (pj.subtitle_style) setRenderSubtitleStyle(pj.subtitle_style);
+        if (pj.reframe_mode) setRenderReframeMode(pj.reframe_mode);
+      } catch {}
+    }
     navigateTo("proc", job.id);
     showToast(`Memuat data proyek ${job.id.slice(0, 8)}`);
     try {
@@ -630,7 +681,11 @@ export default function App(): JSX.Element {
         {activeTab === "home" && (
           <div className="flex flex-col gap-10">
             {/* Clapper Slate Job Form */}
-            <JobForm onSubmit={handleStartJob} loading={loading} />
+            <JobForm
+              onSubmit={handleStartJob}
+              onSubmitManual={handleStartManualJob}
+              loading={loading}
+            />
 
             {/* Proyek Terakhir (Recent Projects) */}
             <div className="flex flex-col gap-4">

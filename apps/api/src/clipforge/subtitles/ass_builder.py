@@ -98,8 +98,8 @@ def generate_ass_script(
             # Build line text with target_word highlighted
             text_parts: list[str] = []
             for j, w in enumerate(words):
-                if j == i:
-                    # Active highlighted word
+                if j == i and style.active_color != style.primary_color:
+                    # Active highlighted word with distinct accent color
                     text_parts.append(f"{{\\c{style.active_color}}}{w.text}{{\\r}}")
                 else:
                     text_parts.append(w.text)

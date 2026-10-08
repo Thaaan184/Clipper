@@ -4,6 +4,10 @@ export interface JobParams {
   subtitle_style?: string;
   min_duration_s?: number;
   max_duration_s?: number;
+  manual?: boolean;
+  start_time?: string | number;
+  end_time?: string | number;
+  title?: string;
 }
 
 export interface Job {

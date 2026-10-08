@@ -646,9 +646,15 @@ async def preview_subtitle_frame(
     return FileResponse(path=str(out_png), media_type="image/png")
 
 
+class RerenderClipRequest(BaseModel):
+    reframe_mode: str | None = None
+    subtitle_style: str | None = None
+
+
 @router.post("/{clip_id}/rerender", response_model=ClipResponse)
 async def rerender_clip(
     clip_id: str,
+    payload: RerenderClipRequest | None = None,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> ClipResponse:
     """Re-render clip with current subs.ass and reframe configuration."""
@@ -665,26 +671,31 @@ async def rerender_clip(
     ass_file = clip_dir / "subs.ass"
 
     r_params = json.loads(r_params_str) if r_params_str else {}
-    mode = r_params.get("reframe_mode", "blur")
+    mode = (
+        payload.reframe_mode
+        if payload and payload.reframe_mode
+        else r_params.get("reframe_mode", "blur")
+    )
 
-    # Check latest subtitle track style
-    preset_name = "classic_white"
-    async with db.execute(
-        "SELECT style_json FROM subtitle_tracks WHERE clip_id = ? ORDER BY revision DESC LIMIT 1",
-        (clip_id,),
-    ) as cur:
-        st_row = await cur.fetchone()
-        if st_row and st_row[0]:
-            try:
-                style_data = json.loads(st_row[0])
-                if isinstance(style_data, dict) and style_data.get("preset"):
-                    preset_name = str(style_data["preset"])
-                elif isinstance(style_data, str):
-                    preset_name = style_data
-            except Exception:
-                pass
-        else:
-            preset_name = r_params.get("subtitle_style", "classic_white")
+    # Check latest subtitle track style or payload
+    preset_name = payload.subtitle_style if payload and payload.subtitle_style else None
+    if not preset_name:
+        async with db.execute(
+            "SELECT style_json FROM subtitle_tracks WHERE clip_id = ? ORDER BY revision DESC LIMIT 1",
+            (clip_id,),
+        ) as cur:
+            st_row = await cur.fetchone()
+            if st_row and st_row[0]:
+                try:
+                    style_data = json.loads(st_row[0])
+                    if isinstance(style_data, dict) and style_data.get("preset"):
+                        preset_name = str(style_data["preset"])
+                    elif isinstance(style_data, str):
+                        preset_name = style_data
+                except Exception:
+                    pass
+    if not preset_name:
+        preset_name = r_params.get("subtitle_style", "classic_white")
 
     has_subtitles = preset_name.lower() not in (
         "none",
@@ -708,10 +719,14 @@ async def rerender_clip(
 
     status_str = "done" if render_result["success"] else "failed"
 
+    r_params["reframe_mode"] = mode
+    r_params["subtitle_style"] = preset_name
+    new_r_params_json = json.dumps(r_params)
+
     await db.execute(
         """
         UPDATE clips
-        SET status = ?, video_path = ?, thumb_path = ?, qa_json = ?
+        SET status = ?, video_path = ?, thumb_path = ?, qa_json = ?, render_params_json = ?
         WHERE id = ?
         """,
         (
@@ -719,6 +734,7 @@ async def rerender_clip(
             render_result["final_path"],
             render_result["thumb_path"],
             json.dumps(render_result["qa"]),
+            new_r_params_json,
             clip_id,
         ),
     )

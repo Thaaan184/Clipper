@@ -50,18 +50,19 @@ def test_generate_ass_script_active_word_highlighting():
         SubtitleWord(idx=1, start_s=1.5, end_s=2.0, text="wipe"),
     ]
     chunk = SubtitleChunk(words=words, start_s=1.0, end_s=2.0)
-    preset = load_style_preset("classic_white")
 
-    ass_text = generate_ass_script([chunk], style=preset)
-    assert "PlayResX: 1080" in ass_text
-    assert "PlayResY: 1920" in ass_text
-    assert "Style: Default" in ass_text
+    # 1. Fire Orange style highlights with &H00008CFF&
+    orange_preset = load_style_preset("fire_orange")
+    orange_ass = generate_ass_script([chunk], style=orange_preset)
+    orange_lines = [ln for ln in orange_ass.splitlines() if ln.startswith("Dialogue:")]
+    assert len(orange_lines) == 2
+    assert "{\\c&H00008CFF&}squad{\\r} wipe" in orange_lines[0]
+    assert "squad {\\c&H00008CFF&}wipe{\\r}" in orange_lines[1]
 
-    # Should have two Dialogue lines for 2 words
-    dialogue_lines = [ln for ln in ass_text.splitlines() if ln.startswith("Dialogue:")]
-    assert len(dialogue_lines) == 2
-
-    # First event highlights squad
-    assert "{\\c&H00008CFF&}squad{\\r} wipe" in dialogue_lines[0]
-    # Second event highlights wipe
-    assert "squad {\\c&H00008CFF&}wipe{\\r}" in dialogue_lines[1]
+    # 2. Classic White stays clean white without orange tags
+    white_preset = load_style_preset("classic_white")
+    white_ass = generate_ass_script([chunk], style=white_preset)
+    white_lines = [ln for ln in white_ass.splitlines() if ln.startswith("Dialogue:")]
+    assert len(white_lines) == 2
+    assert "&H00008CFF&" not in white_ass
+    assert "squad wipe" in white_lines[0]

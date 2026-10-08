@@ -12,14 +12,41 @@ import {
   FileEdit,
   Loader2,
   Palette,
+  Plus,
   RefreshCw,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 
 interface SubtitleEditorProps {
   clipId: string;
   initialTrack: SubtitleTrack;
   onClipUpdated?: () => void;
+}
+
+function formatSec(s: number): string {
+  if (isNaN(s)) return "0.00";
+  return s.toFixed(2);
+}
+
+function parseSecInput(val: string, fallback: number): number {
+  val = val.trim();
+  if (!val) return fallback;
+  if (val.includes(":")) {
+    const parts = val.split(":");
+    if (parts.length === 2) {
+      const m = parseFloat(parts[0]);
+      const s = parseFloat(parts[1]);
+      if (!isNaN(m) && !isNaN(s)) return Math.max(0, m * 60 + s);
+    } else if (parts.length === 3) {
+      const h = parseFloat(parts[0]);
+      const m = parseFloat(parts[1]);
+      const s = parseFloat(parts[2]);
+      if (!isNaN(h) && !isNaN(m) && !isNaN(s)) return Math.max(0, h * 3600 + m * 60 + s);
+    }
+  }
+  const num = parseFloat(val);
+  return isNaN(num) ? fallback : Math.max(0, num);
 }
 
 export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
@@ -53,9 +80,50 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
     }
   }, [initialTrack]);
 
-  const handleWordChange = (idx: number, newText: string) => {
+  const handleWordTextChange = (idx: number, newText: string) => {
     setWords((prev) =>
       prev.map((w, i) => (i === idx ? { ...w, text: newText } : w))
+    );
+  };
+
+  const handleWordStartChange = (idx: number, rawVal: string) => {
+    setWords((prev) =>
+      prev.map((w, i) => {
+        if (i !== idx) return w;
+        const newStart = parseSecInput(rawVal, w.start_s);
+        return { ...w, start_s: newStart };
+      })
+    );
+  };
+
+  const handleWordEndChange = (idx: number, rawVal: string) => {
+    setWords((prev) =>
+      prev.map((w, i) => {
+        if (i !== idx) return w;
+        const newEnd = parseSecInput(rawVal, w.end_s);
+        return { ...w, end_s: newEnd };
+      })
+    );
+  };
+
+  const handleAddWord = () => {
+    setWords((prev) => {
+      const last = prev[prev.length - 1];
+      const start = last ? Math.round((last.end_s + 0.1) * 100) / 100 : 0.0;
+      const end = Math.round((start + 2.0) * 100) / 100;
+      const newWord: SubtitleWord = {
+        idx: prev.length,
+        start_s: start,
+        end_s: end,
+        text: "Subtitle baru",
+      };
+      return [...prev, newWord];
+    });
+  };
+
+  const handleDeleteWord = (idx: number) => {
+    setWords((prev) =>
+      prev.filter((_, i) => i !== idx).map((w, i) => ({ ...w, idx: i }))
     );
   };
 
@@ -112,7 +180,10 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
     setIsRerendering(true);
     try {
       await updateClipSubtitles(clipId, words, stylePreset);
-      await rerenderClip(clipId);
+      await rerenderClip(clipId, {
+        reframe_mode: reframeMode,
+        subtitle_style: stylePreset,
+      });
       try {
         await saveFinishedClip(clipId);
       } catch {}
@@ -157,12 +228,12 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
             onChange={(e) => setStylePreset(e.target.value)}
             className="w-full px-3 py-2 bg-card border border-line text-copy text-xs focus:outline-none focus:border-action"
           >
-            <option value="classic_white">Classic White</option>
-            <option value="hormozi_bold">Hormozi Bold (Kuning)</option>
-            <option value="fire_orange">Fire Orange</option>
-            <option value="mrbeast_box">MrBeast Box</option>
-            <option value="neon_glow">Neon Glow (Cyan)</option>
-            <option value="minimal_clean">Minimal Clean</option>
+            <option value="classic_white">Classic White (Putih)</option>
+            <option value="fire_orange">Fire Orange (Oranye)</option>
+            <option value="hormozi_bold">Hormozi Bold (Kuning/Hijau)</option>
+            <option value="mrbeast_box">MrBeast Box (Bold Gold)</option>
+            <option value="neon_glow">Neon Glow (Cyan/Magenta)</option>
+            <option value="minimal_clean">Minimal Clean (Putih Minimalis)</option>
             <option value="none">Tanpa Subtitle (No Subtitle)</option>
           </select>
         </div>
@@ -202,30 +273,79 @@ export const SubtitleEditor: React.FC<SubtitleEditorProps> = ({
         {/* Word Grid */}
         <div className="flex flex-col gap-2">
           <div className="flex justify-between items-center text-xs text-muted font-mono">
-            <span>DAFTAR KATA ASR ({words.length} kata)</span>
-            <span>Edit teks per kata</span>
+            <span>DAFTAR SUBTITLE & TIMING ({words.length} baris)</span>
+            <button
+              type="button"
+              onClick={handleAddWord}
+              className="flex items-center gap-1 text-[11px] text-action hover:underline font-bold"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>TAMBAH BARIS</span>
+            </button>
           </div>
 
           <div className="h-96 overflow-y-auto bg-card p-3 border border-line flex flex-col gap-2 pr-1 font-mono">
             {words.length === 0 ? (
-              <div className="text-muted text-xs text-center py-16">
-                Tidak ada transkrip kata untuk klip ini (gameplay highlight tanpa audio bicara).
+              <div className="text-muted text-xs text-center py-16 flex flex-col items-center gap-3">
+                <span>Tidak ada subtitle untuk klip ini.</span>
+                <button
+                  type="button"
+                  onClick={handleAddWord}
+                  className="btn-action px-3 py-1 text-xs font-bold text-bg"
+                >
+                  + Tambah Subtitle Manual
+                </button>
               </div>
             ) : (
               words.map((w, idx) => (
                 <div
                   key={idx}
-                  className="flex items-center gap-2 p-2 bg-surface border border-line text-xs"
+                  className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 p-2.5 bg-surface border border-line text-xs"
                 >
-                  <span className="font-mono text-[10px] text-muted w-20 shrink-0">
-                    {w.start_s.toFixed(2)}s - {w.end_s.toFixed(2)}s
-                  </span>
+                  {/* Timestamp Inputs */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    <span className="text-[10px] text-muted">IN:</span>
+                    <input
+                      type="text"
+                      defaultValue={formatSec(w.start_s)}
+                      key={`st-${idx}-${w.start_s}`}
+                      onBlur={(e) => handleWordStartChange(idx, e.target.value)}
+                      className="w-14 px-1.5 py-0.5 bg-card border border-line text-copy text-[11px] font-mono text-center focus:border-action focus:outline-none"
+                      title="Waktu mulai (detik atau MM:SS)"
+                    />
+                    <span className="text-muted text-[10px]">→</span>
+                    <span className="text-[10px] text-muted">OUT:</span>
+                    <input
+                      type="text"
+                      defaultValue={formatSec(w.end_s)}
+                      key={`en-${idx}-${w.end_s}`}
+                      onBlur={(e) => handleWordEndChange(idx, e.target.value)}
+                      className="w-14 px-1.5 py-0.5 bg-card border border-line text-copy text-[11px] font-mono text-center focus:border-action focus:outline-none"
+                      title="Waktu selesai (detik atau MM:SS)"
+                    />
+                    <span className="text-[10px] text-action font-mono bg-action/10 px-1 py-0.5 border border-action/20">
+                      {Math.max(0, w.end_s - w.start_s).toFixed(2)}s
+                    </span>
+                  </div>
+
+                  {/* Text input */}
                   <input
                     type="text"
                     value={w.text}
-                    onChange={(e) => handleWordChange(idx, e.target.value)}
-                    className="flex-1 px-2.5 py-1 bg-card border border-line text-copy text-xs font-semibold focus:outline-none focus:border-action"
+                    onChange={(e) => handleWordTextChange(idx, e.target.value)}
+                    className="flex-1 px-2 py-0.5 bg-card border border-line text-copy text-xs font-semibold focus:outline-none focus:border-action"
+                    placeholder="Teks subtitle..."
                   />
+
+                  {/* Delete button */}
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteWord(idx)}
+                    title="Hapus baris subtitle ini"
+                    className="p-1 text-muted hover:text-err transition-colors shrink-0"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               ))
             )}
