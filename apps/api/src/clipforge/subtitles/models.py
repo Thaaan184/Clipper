@@ -9,12 +9,16 @@ class SubtitleWord(BaseModel):
     end_s: float
     text: str
     confidence: float = 1.0
+    speaker: str = "speaker_1"
+    pos_y: int | None = None
 
 
 class SubtitleChunk(BaseModel):
     words: list[SubtitleWord]
     start_s: float
     end_s: float
+    speaker: str = "speaker_1"
+    pos_y: int | None = None
 
 
 class SubtitleStylePreset(BaseModel):

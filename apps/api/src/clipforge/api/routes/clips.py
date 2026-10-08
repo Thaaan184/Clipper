@@ -492,17 +492,40 @@ async def get_clip_subtitles(
         ORDER BY idx ASC
     """
     words = []
-    async with db.execute(q_words, (track_id,)) as cursor:
-        async for r in cursor:
-            words.append(
-                {
-                    "idx": r[0],
-                    "start_s": r[1],
-                    "end_s": r[2],
-                    "text": r[3],
-                    "confidence": r[4],
-                }
-            )
+    try:
+        q_words_ext = """
+            SELECT idx, start_s, end_s, text, confidence, speaker, pos_y
+            FROM subtitle_words
+            WHERE track_id = ?
+            ORDER BY idx ASC
+        """
+        async with db.execute(q_words_ext, (track_id,)) as cursor:
+            async for r in cursor:
+                words.append(
+                    {
+                        "idx": r[0],
+                        "start_s": r[1],
+                        "end_s": r[2],
+                        "text": r[3],
+                        "confidence": r[4],
+                        "speaker": r[5] if len(r) > 5 and r[5] else "speaker_1",
+                        "pos_y": r[6] if len(r) > 6 else None,
+                    }
+                )
+    except Exception:
+        async with db.execute(q_words, (track_id,)) as cursor:
+            async for r in cursor:
+                words.append(
+                    {
+                        "idx": r[0],
+                        "start_s": r[1],
+                        "end_s": r[2],
+                        "text": r[3],
+                        "confidence": r[4],
+                        "speaker": "speaker_1",
+                        "pos_y": None,
+                    }
+                )
 
     return {
         "clip_id": clip_id,
@@ -551,13 +574,22 @@ async def update_clip_subtitles(
     )
 
     for w in val_words:
-        await db.execute(
-            """
-            INSERT INTO subtitle_words (track_id, idx, start_s, end_s, text, confidence)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (track_id, w.idx, w.start_s, w.end_s, w.text, w.confidence),
-        )
+        try:
+            await db.execute(
+                """
+                INSERT INTO subtitle_words (track_id, idx, start_s, end_s, text, confidence, speaker, pos_y)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (track_id, w.idx, w.start_s, w.end_s, w.text, w.confidence, w.speaker or "speaker_1", w.pos_y),
+            )
+        except Exception:
+            await db.execute(
+                """
+                INSERT INTO subtitle_words (track_id, idx, start_s, end_s, text, confidence)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (track_id, w.idx, w.start_s, w.end_s, w.text, w.confidence),
+            )
 
     await db.commit()
 

@@ -138,3 +138,83 @@ def test_subtitle_editor_multi_word_timing_edit():
     srt_text = export_srt(chunks)
     assert "00:00:02,000 --> 00:00:03,500" in srt_text
     assert "00:00:04,000 --> 00:00:06,200" in srt_text
+
+
+def test_overlapping_subtitles_simultaneous_display_and_distinct_speaker_colors():
+    """
+    Requirement 1:
+    - Same timestamp (00:12 -> 00:15)
+    - Speaker 1: 'Bro, lu udah siap?' (White default)
+    - Speaker 2: 'Udah, ayo berangkat.' (Orange)
+    - Displayed simultaneously in one frame, stacked vertically atas-bawah.
+    """
+    words = [
+        SubtitleWord(
+            idx=0,
+            start_s=12.0,
+            end_s=15.0,
+            text="Bro, lu udah siap?",
+            speaker="speaker_1",
+        ),
+        SubtitleWord(
+            idx=1,
+            start_s=12.0,
+            end_s=15.0,
+            text="Udah, ayo berangkat.",
+            speaker="speaker_2",
+        ),
+    ]
+    val_words = validate_and_normalize_words(words, clip_duration_s=30.0)
+    assert len(val_words) == 2
+    # Verify timestamps are NOT truncated to avoid overlap
+    assert val_words[0].start_s == 12.0 and val_words[0].end_s == 15.0
+    assert val_words[1].start_s == 12.0 and val_words[1].end_s == 15.0
+
+    chunks = create_kinetic_chunks(val_words)
+    assert len(chunks) == 2
+
+    preset = load_style_preset("classic_white")
+    ass_text = generate_ass_script(chunks, style=preset)
+    dialogues = [ln for ln in ass_text.splitlines() if ln.startswith("Dialogue:")]
+    assert len(dialogues) == 2
+
+    # Both dialogues start at 0:00:12.00
+    assert "0:00:12.00,0:00:15.00" in dialogues[0]
+    assert "0:00:12.00,0:00:15.00" in dialogues[1]
+
+    # Stacked vertically (atas-bawah)
+    assert "\\pos(540,1680)" in dialogues[0]
+    assert "\\pos(540,1555)" in dialogues[1]
+
+    # Speaker 1 uses default white, Speaker 2 uses Fire Orange
+    assert "\\c&H00FFFFFF&" in dialogues[0]
+    assert "\\c&H00008CFF&" in dialogues[1]
+    assert "Bro, lu udah siap?" in dialogues[0]
+    assert "Udah, ayo berangkat." in dialogues[1]
+
+
+def test_custom_vertical_drag_positioning_persists_to_ass():
+    """
+    Requirement 2:
+    - Custom pos_y (e.g., dragged to Y=1150)
+    - Persists to ASS with exact \\pos(540, 1150) coordinate.
+    """
+    words = [
+        SubtitleWord(
+            idx=0,
+            start_s=5.0,
+            end_s=8.0,
+            text="Subtitle di-drag ke atas.",
+            speaker="speaker_1",
+            pos_y=1150,
+        )
+    ]
+    val_words = validate_and_normalize_words(words, clip_duration_s=20.0)
+    assert val_words[0].pos_y == 1150
+
+    chunks = create_kinetic_chunks(val_words)
+    preset = load_style_preset("classic_white")
+    ass_text = generate_ass_script(chunks, style=preset)
+    assert "\\pos(540,1150)" in ass_text
+    assert "Subtitle di-drag ke atas." in ass_text
+

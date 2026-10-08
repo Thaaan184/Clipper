@@ -46,8 +46,8 @@ def validate_and_normalize_words(
     if not words:
         return []
 
-    # Sort monotonically
-    sorted_words = sorted(words, key=lambda w: (w.start_s, w.end_s))
+    # Sort by start time, end time, and index
+    sorted_words = sorted(words, key=lambda w: (w.start_s, w.end_s, w.idx))
     validated: list[SubtitleWord] = []
 
     for w in sorted_words:
@@ -59,15 +59,6 @@ def validate_and_normalize_words(
         start = max(0.0, min(w.start_s, clip_duration_s))
         end = max(start + 0.04, min(w.end_s, clip_duration_s))
 
-        # Resolve overlap with previous word
-        if validated:
-            prev = validated[-1]
-            if start < prev.end_s:
-                # If current starts before previous ends, truncate previous
-                prev.end_s = start
-                if prev.end_s - prev.start_s < 0.04:
-                    prev.start_s = max(0.0, prev.end_s - 0.04)
-
         validated.append(
             SubtitleWord(
                 idx=len(validated),
@@ -75,6 +66,8 @@ def validate_and_normalize_words(
                 end_s=round(end, 3),
                 text=clean_text,
                 confidence=w.confidence,
+                speaker=w.speaker or "speaker_1",
+                pos_y=w.pos_y,
             )
         )
 

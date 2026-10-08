@@ -116,6 +116,8 @@ export interface SubtitleWord {
   end_s: number;
   text: string;
   confidence?: number;
+  speaker?: string;
+  pos_y?: number | null;
 }
 
 export interface SubtitleTrack {
